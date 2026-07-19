@@ -110,7 +110,7 @@ export async function healthCheckAllProviders(projectId: string): Promise<Array<
     where: { projectId, enabled: true },
     select: { name: true },
   })
-  const results = []
+  const results: Array<{ name: ProviderName; healthy: boolean; latencyMs: number; details?: string }> = []
   for (const { name } of configs) {
     try {
       const instance = await getProviderInstance(projectId, name as ProviderName)

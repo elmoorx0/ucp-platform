@@ -21,7 +21,7 @@ export async function GET() {
   // Gateway check (optional — may be down in some sandbox environments)
   const gateway = await gatewayHealthCheck()
   if (gateway) {
-    checks.gateway = { ok: true, ...gateway }
+    checks.gateway = { ...gateway, ok: true }
   } else {
     checks.gateway = { ok: false, note: 'Gateway not reachable — restart with: cd mini-services/realtime-gateway && bun index.ts' }
   }

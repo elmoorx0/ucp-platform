@@ -14,15 +14,24 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
-  eslint: {
-    ignoreDuringBuilds: false,
-  },
   // Prisma client binary needs to be included in the serverless bundle
   outputFileTracingIncludes: {
-    "/api/**/*": ["./node_modules/.prisma/**/*", "./node_modules/@prisma/client/**/*"],
+    "/api/**/*": [
+      "./node_modules/.prisma/**/*",
+      "./node_modules/@prisma/client/**/*",
+      "./node_modules/@libsql/**/*",
+      "./node_modules/libsql/**/*",
+    ],
   },
-  // Force these packages to be bundled (not externalized) for serverless
-  serverExternalPackages: ["@prisma/client", "@node-rs/argon2"],
+  // Externalize these packages so they're loaded at runtime from node_modules
+  // instead of being bundled by Turbopack (avoids resolution errors)
+  serverExternalPackages: [
+    "@prisma/client",
+    "@node-rs/argon2",
+    "@libsql/client",
+    "@prisma/adapter-libsql",
+    "libsql",
+  ],
   experimental: {
     // Optimize package imports for faster builds
     optimizePackageImports: ["lucide-react", "recharts", "date-fns"],

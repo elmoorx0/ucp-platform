@@ -66,8 +66,10 @@ export async function getTargetsForRetry(limit = 50): Promise<RetryableTarget[]>
       status: 'failed',
       attempts: { lt: MAX_ATTEMPTS },
       // Don't retry invalid devices (token expired, etc.)
-      lastError: { not: { contains: 'MISSING_TOKEN' } },
-      lastError: { not: { contains: 'InvalidApiKey' } },
+      AND: [
+        { lastError: { not: { contains: 'MISSING_TOKEN' } } },
+        { lastError: { not: { contains: 'InvalidApiKey' } } },
+      ],
       // Add a small delay between retries — updatedAt should be at least 30s ago
       updatedAt: { lt: new Date(now.getTime() - 30_000) },
     },
@@ -130,7 +132,7 @@ export async function retryTarget(target: RetryableTarget): Promise<boolean> {
       title: notification.title,
       body: notification.body,
       imageUrl: notification.imageUrl || undefined,
-      data: { ...JSON.parse(notification.data || '{}'), notificationId, targetId: target.targetId },
+      data: { ...JSON.parse(notification.data || '{}'), notificationId: target.notificationId, targetId: target.targetId },
       email: full.endUser?.email || undefined,
       token: full.device?.token,
       subscription: full.device?.pushSubscription ? JSON.parse(full.device.pushSubscription) : undefined,
@@ -161,10 +163,10 @@ export async function retryTarget(target: RetryableTarget): Promise<boolean> {
       })
 
       await writeAuditLog({
-        projectId: target.projectId,
         action: 'notification.retry.succeeded',
         resource: 'notification_target',
         resourceId: target.targetId,
+        message: `Project: ${target.projectId}`,
         after: { attempts: target.attempts + 1 },
         status: 'success',
       })
@@ -186,10 +188,10 @@ export async function retryTarget(target: RetryableTarget): Promise<boolean> {
       })
 
       await writeAuditLog({
-        projectId: target.projectId,
         action: 'notification.retry.failed',
         resource: 'notification_target',
         resourceId: target.targetId,
+        message: `Project: ${target.projectId}`,
         after: { attempts: newAttempts, willRetry, error: result.error },
         status: 'failed',
       })

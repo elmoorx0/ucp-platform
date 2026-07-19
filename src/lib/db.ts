@@ -1,6 +1,4 @@
 import { PrismaClient } from '@prisma/client'
-import { PrismaLibSQL } from '@prisma/adapter-libsql'
-import { createClient } from '@libsql/client'
 
 /**
  * Prisma Client singleton — Vercel/serverless compatible.
@@ -33,26 +31,41 @@ function createPrismaClient(): PrismaClient {
   const databaseUrl = process.env.DATABASE_URL || 'file:./db/custom.db'
 
   // If DATABASE_URL starts with "libsql://", use Turbo adapter (production)
+  // We load these dependencies dynamically so they're only required when
+  // actually using Turso. This avoids build errors when @libsql/client is
+  // not installed in dev environments that only use SQLite files.
   if (databaseUrl.startsWith('libsql://') || databaseUrl.startsWith('libsql:')) {
-    const authTokenMatch = databaseUrl.match(/[?&]authToken=([^&]+)/)
-    const authToken = authTokenMatch ? decodeURIComponent(authTokenMatch[1]) : undefined
-    const url = databaseUrl.split('?')[0]
-
-    const libsql = createClient({
-      url,
-      authToken,
-    })
-    const adapter = new PrismaLibSQL(libsql)
-    return new PrismaClient({
-      adapter,
-      log: process.env.NODE_ENV === 'production' ? ['error', 'warn'] : ['query', 'error', 'warn'],
-    } as ConstructorParameters<typeof PrismaClient>[0])
+    return createTursoClient(databaseUrl)
   }
 
   // Local SQLite file (development)
   return new PrismaClient({
     log: process.env.NODE_ENV === 'production' ? ['error', 'warn'] : ['query', 'error', 'warn'],
   })
+}
+
+/**
+ * Create a PrismaClient backed by Turso (libSQL).
+ * Dependencies are loaded dynamically to avoid bundling them when not needed.
+ */
+function createTursoClient(databaseUrl: string): PrismaClient {
+  // Parse URL and authToken
+  const urlMatch = databaseUrl.match(/^(libsql:\/\/[^?]+)/)
+  const authTokenMatch = databaseUrl.match(/[?&]authToken=([^&]+)/)
+  const url = urlMatch ? urlMatch[1] : databaseUrl
+  const authToken = authTokenMatch ? decodeURIComponent(authTokenMatch[1]) : undefined
+
+  // Dynamic imports — only executed when Turso is actually used
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { PrismaLibSQL } = require('@prisma/adapter-libsql') as typeof import('@prisma/adapter-libsql')
+
+  // PrismaLibSQL constructor accepts a Config object (url + authToken), NOT a Client instance.
+  // This is the API in @prisma/adapter-libsql 6.x.
+  const adapter = new PrismaLibSQL({ url, authToken })
+  return new PrismaClient({
+    adapter,
+    log: process.env.NODE_ENV === 'production' ? ['error', 'warn'] : ['query', 'error', 'warn'],
+  } as ConstructorParameters<typeof PrismaClient>[0])
 }
 
 export const db = globalForPrisma.prisma ?? createPrismaClient()

@@ -212,9 +212,10 @@ export async function renderTemplateSafe(
   key: string,
   variables: Record<string, string | number | boolean> = {},
   locale = 'en',
+  projectId?: string,
   fallback?: { title: string; body: string }
 ): Promise<RenderedTemplate> {
-  const rendered = await renderTemplate(key, variables, locale)
+  const rendered = await renderTemplate(key, variables, locale, projectId)
   if (rendered) return rendered
 
   return {
