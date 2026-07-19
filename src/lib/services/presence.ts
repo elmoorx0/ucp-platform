@@ -1,65 +1,51 @@
 /**
  * Presence Service
- * Wraps the presence adapter with project-scoped helpers.
+ * Delegates to the Realtime Gateway via HTTP (no in-memory state in Next.js).
+ * The gateway is the single source of truth for online state.
  */
 
-import { getPresence } from '@/lib/adapters'
+import { queryPresence } from '@/lib/gateway-client'
 import { publishEvent } from './eventbus'
 import type { PresenceState } from '@/lib/types'
 
-export async function setUserOnline(
-  projectId: string,
-  userId: string,
-  socketId: string,
-  metadata?: Record<string, unknown>
-) {
-  await getPresence().setOnline(projectId, userId, socketId, metadata)
-  await publishEvent(
-    projectId,
-    'presence.online',
-    'presence',
-    { userId, socketId, metadata },
-    { channel: `presence:${projectId}`, persist: false }
-  )
-}
-
-export async function setUserAway(projectId: string, userId: string) {
-  await getPresence().setAway(projectId, userId)
-  await publishEvent(
-    projectId,
-    'presence.away',
-    'presence',
-    { userId },
-    { channel: `presence:${projectId}`, persist: false }
-  )
-}
-
-export async function setUserOffline(projectId: string, userId: string, socketId?: string) {
-  const wasOnline = await getPresence().isUserOnline(projectId, userId)
-  await getPresence().setOffline(projectId, userId, socketId)
-  if (wasOnline) {
-    await publishEvent(
-      projectId,
-      'presence.offline',
-      'presence',
-      { userId, socketId },
-      { channel: `presence:${projectId}`, persist: false }
-    )
-  }
-}
-
 export async function getUserPresence(projectId: string, userId: string): Promise<PresenceState | null> {
-  return getPresence().getStatus(projectId, userId)
+  const result = await queryPresence(projectId, userId)
+  if (!result || !result.user) return null
+  return result.user as PresenceState
 }
 
 export async function getOnlineUsers(projectId: string): Promise<PresenceState[]> {
-  return getPresence().getOnlineUsers(projectId)
+  const result = await queryPresence(projectId)
+  if (!result || !result.users) return []
+  return result.users as PresenceState[]
 }
 
 export async function isUserOnline(projectId: string, userId: string): Promise<boolean> {
-  return getPresence().isUserOnline(projectId, userId)
+  const state = await getUserPresence(projectId, userId)
+  return !!state && state.status === 'online'
 }
 
 export async function getPresenceStats(projectId?: string) {
-  return getPresence().getStats(projectId)
+  if (!projectId) {
+    // No global stats available without projectId — return zeros
+    return { onlineCount: 0, awayCount: 0 }
+  }
+  const users = await getOnlineUsers(projectId)
+  const onlineCount = users.filter((u) => u.status === 'online').length
+  const awayCount = users.filter((u) => u.status === 'away').length
+  return { onlineCount, awayCount }
+}
+
+// Note: setOnline/setAway/setOffline are NOT available here — they happen
+// automatically when a socket connects/disconnects at the gateway level.
+// The Next.js API cannot directly set presence; only socket events do.
+// To broadcast a presence-related event, use the event bus:
+export async function broadcastPresenceUpdate(projectId: string, userId: string, status: 'online' | 'away' | 'offline') {
+  await publishEvent(
+    projectId,
+    'presence.update',
+    'presence',
+    { userId, status, timestamp: Date.now() },
+    { channel: `presence:${projectId}`, persist: false }
+  )
 }

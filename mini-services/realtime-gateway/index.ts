@@ -1,21 +1,28 @@
 /**
- * UCP Realtime Gateway
- * ---------------------
+ * UCP Realtime Gateway (Production-grade, no polling)
+ * ----------------------------------------------------
  * Standalone Socket.io service on port 3003.
  *
- * Responsibilities:
- *  - Authenticate socket connections via API key (query DB via bun:sqlite)
- *  - Manage channel subscriptions (per project)
- *  - Track user presence (in-memory; Redis in production)
- *  - Poll DB for new in-app notifications & deliver them to connected sockets
- *  - Forward realtime messages between connected clients
+ * Architecture (push-based, no polling):
+ *  - Socket.io server for client WebSocket connections
+ *  - Internal HTTP endpoint /internal/push for Next.js API to push messages INSTANTLY
+ *  - Internal HTTP endpoint /internal/presence for Next.js API to query presence
+ *  - All "in-app notification" delivery happens via direct push from Next.js API
+ *    through this gateway (no DB polling).
  *
- * Connection protocol:
- *  Client connects with: io('/?XTransformPort=3003', { auth: { apiKey, userId } })
- *  After auth, client may subscribe to channels via 'channel:subscribe' event.
+ * Auth:
+ *  - Socket.io clients authenticate via API key (queried against SQLite)
+ *  - Internal HTTP endpoints authenticate via Bearer INTERNAL_API_TOKEN
+ *
+ * Connection protocol (client):
+ *   io('/?XTransformPort=3003', { auth: { apiKey, userId } })
+ *
+ * Internal push (server-to-server):
+ *   POST /internal/push  Bearer <INTERNAL_API_TOKEN>
+ *     { target: 'user'|'channel'|'project'|'all', projectId, channel?, userId?, event, payload }
  */
 
-import { createServer, IncomingMessage } from 'http'
+import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { Server, Socket } from 'socket.io'
 import { Database } from 'bun:sqlite'
 import { randomUUID } from 'crypto'
@@ -29,8 +36,14 @@ if (!existsSync(DB_PATH)) {
   console.error(`[Gateway] DB not found at ${DB_PATH}`)
   process.exit(1)
 }
+const INTERNAL_API_TOKEN = process.env.INTERNAL_API_TOKEN || 'ucp-internal-dev-token-change-me'
 
-// ============ Database ============
+if (!existsSync(DB_PATH)) {
+  console.error(`[Gateway] DB not found at ${DB_PATH}`)
+  process.exit(1)
+}
+
+// ============ Database (read-only for auth + audit logging) ============
 
 const sqlite = new Database(DB_PATH)
 sqlite.exec('PRAGMA journal_mode = WAL;')
@@ -84,18 +97,18 @@ function verifyKeyHash(plaintext: string, stored: string): boolean {
   return diff === 0
 }
 
-function logAudit(projectId: string, action: string, payload: unknown, channel?: string) {
+function logEvent(projectId: string, type: string, payload: unknown, channel?: string) {
   try {
     sqlite.prepare(`
       INSERT INTO Event (id, projectId, type, source, payload, channel, delivered, createdAt)
       VALUES (?, ?, ?, 'realtime', ?, ?, 1, datetime('now'))
-    `).run(randomUUID(), projectId, action, JSON.stringify(payload), channel || `realtime:${projectId}`)
+    `).run(randomUUID(), projectId, type, JSON.stringify(payload), channel || `realtime:${projectId}`)
   } catch (e) {
     console.error('[Gateway] failed to log event:', e)
   }
 }
 
-// ============ Presence ============
+// ============ Presence (in-memory; Redis in production) ============
 
 interface PresenceEntry {
   userId: string
@@ -154,37 +167,299 @@ function getOnlineUsers(projectId: string): PresenceEntry[] {
   return out
 }
 
-// ============ HTTP Server (for stats only — Socket.io intercepts other paths) ============
+function isUserOnline(projectId: string, userId: string): boolean {
+  const entry = presence.get(presenceKey(projectId, userId))
+  return !!entry && entry.status !== 'offline' && entry.socketIds.size > 0
+}
 
-const httpServer = createServer((req: IncomingMessage, res) => {
-  // Socket.io intercepts most paths; we just respond to /healthz and /stats with port-aware routing
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+function getUserStatus(projectId: string, userId: string): PresenceEntry | null {
+  const entry = presence.get(presenceKey(projectId, userId))
+  if (!entry) return null
+  return { ...entry, socketIds: new Set() }
+}
+
+// ============ HTTP Server ============
+
+function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  return new Promise((resolve) => {
+    let data = ''
+    req.on('data', (chunk) => (data += chunk))
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(data))
+      } catch {
+        resolve(null)
+      }
+    })
+    req.on('error', () => resolve(null))
+  })
+}
+
+function sendJson(res: ServerResponse, status: number, body: unknown) {
+  const json = JSON.stringify(body)
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(json),
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  })
+  res.end(json)
+}
+
+const httpServer = createServer()
+
+// ============ HTTP request handler ============
+// Handles ONLY our explicit routes. All other requests fall through to socket.io.
+
+const httpHandler = (req: IncomingMessage, res: ServerResponse) => {
+  const url = req.url || '/'
+  const pathname = url.split('?')[0]
+  const query = url.split('?')[1] || ''
+
+  // Skip socket.io polling/websocket upgrade requests — let socket.io handle them
+  const isSocketIoReq = pathname === '/' && (query.includes('EIO=') || query.includes('transport=') || query.includes('sid='))
+  if (isSocketIoReq) {
+    return // do not end res — socket.io will handle
+  }
+
+  // CORS preflight for our HTTP routes
   if (req.method === 'OPTIONS') {
-    res.writeHead(204)
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    })
     res.end()
     return
   }
-  res.writeHead(200, { 'Content-Type': 'application/json' })
-  res.end(JSON.stringify({
-    service: 'ucp-realtime-gateway',
-    port: PORT,
-    uptime: process.uptime(),
-    socketCount: io.engine.clientsCount,
-    presenceCount: presence.size,
-    note: 'Use Socket.io client to connect. Stats available via Socket.io events.',
-  }))
-})
+
+  // For non-POST routes, handle synchronously (no body to read)
+  if (req.method !== 'POST') {
+    if (pathname === '/health') {
+      return sendJson(res, 200, {
+        ok: true,
+        service: 'ucp-realtime-gateway',
+        uptime: process.uptime(),
+        socketCount: io.engine.clientsCount,
+        presenceCount: presence.size,
+        timestamp: Date.now(),
+      })
+    }
+
+    if (pathname === '/internal/presence') {
+      const auth = req.headers['authorization']
+      if (auth !== `Bearer ${INTERNAL_API_TOKEN}`) {
+        return sendJson(res, 401, { error: 'Unauthorized' })
+      }
+      const urlObj = new URL(req.url || '', 'http://localhost')
+      const projectId = urlObj.searchParams.get('projectId')
+      const userId = urlObj.searchParams.get('userId')
+      if (!projectId) return sendJson(res, 400, { error: 'projectId is required' })
+      if (userId) {
+        return sendJson(res, 200, { user: getUserStatus(projectId, userId) })
+      }
+      const users = getOnlineUsers(projectId)
+      return sendJson(res, 200, { users, count: users.length })
+    }
+
+    if (pathname === '/stats') {
+      const projects = new Map<string, { sockets: number; users: number }>()
+      for (const [, socket] of io.sockets.sockets) {
+        const pid = (socket.data as { projectId?: string }).projectId
+        if (!pid) continue
+        const entry = projects.get(pid) || { sockets: 0, users: 0 }
+        entry.sockets++
+        projects.set(pid, entry)
+      }
+      for (const p of presence.values()) {
+        const entry = projects.get(p.projectId) || { sockets: 0, users: 0 }
+        entry.users++
+        projects.set(p.projectId, entry)
+      }
+      return sendJson(res, 200, {
+        uptime: process.uptime(),
+        totalSockets: io.engine.clientsCount,
+        totalPresence: presence.size,
+        projects: Array.from(projects.entries()).map(([id, s]) => ({ projectId: id, ...s })),
+      })
+    }
+
+    // Unknown
+    return sendJson(res, 404, { error: 'Not Found', path: pathname })
+  }
+
+  // POST routes (need body)
+  if (pathname === '/internal/push') {
+    const auth = req.headers['authorization']
+    if (auth !== `Bearer ${INTERNAL_API_TOKEN}`) {
+      return sendJson(res, 401, { error: 'Unauthorized' })
+    }
+
+    // Buffer the body. We MUST register 'data'/'end' listeners synchronously
+    // before returning from this function — otherwise socket.io's request
+    // listener may drain the stream first.
+    const chunks: Buffer[] = []
+    let ended = false
+    let errored = false
+    let bodyReceived = false
+
+    const processBody = () => {
+      if (ended || errored || bodyReceived) return
+      bodyReceived = true
+      const bodyText = Buffer.concat(chunks).toString()
+      let body: {
+        target: 'user' | 'channel' | 'project' | 'all' | 'socket'
+        projectId?: string
+        channel?: string
+        userId?: string
+        socketId?: string
+        event: string
+        payload: unknown
+      } | null = null
+      try {
+        body = JSON.parse(bodyText || 'null')
+      } catch {
+        return sendJson(res, 400, { error: 'Invalid JSON body' })
+      }
+      if (!body || typeof body.event !== 'string') {
+        return sendJson(res, 400, { error: 'Invalid request body' })
+      }
+
+      let recipients = 0
+      const wrappedPayload = {
+        ...(typeof body.payload === 'object' && body.payload !== null ? body.payload : { value: body.payload }),
+        __meta: { source: 'server', timestamp: Date.now() },
+      }
+
+      switch (body.target) {
+        case 'all':
+          recipients = io.emit(body.event, wrappedPayload)
+          break
+        case 'project':
+          if (!body.projectId) return sendJson(res, 400, { error: 'projectId is required for project target' })
+          recipients = io.to(`proj:${body.projectId}`).emit(body.event, wrappedPayload)
+          break
+        case 'channel':
+          if (!body.projectId || !body.channel) return sendJson(res, 400, { error: 'projectId and channel are required for channel target' })
+          recipients = io.to(`proj:${body.projectId}:chan:${body.channel}`).emit(body.event, wrappedPayload)
+          break
+        case 'user':
+          if (!body.projectId || !body.userId) return sendJson(res, 400, { error: 'projectId and userId are required for user target' })
+          recipients = io.to(`proj:${body.projectId}:user:user:${body.userId}`).emit(body.event, wrappedPayload)
+          break
+        case 'socket':
+          if (!body.socketId) return sendJson(res, 400, { error: 'socketId is required for socket target' })
+          io.to(body.socketId).emit(body.event, wrappedPayload)
+          recipients = 1
+          break
+        default:
+          return sendJson(res, 400, { error: `Invalid target: ${body.target}` })
+      }
+
+      return sendJson(res, 200, { ok: true, recipients, event: body.event })
+    }
+
+    // Switch to flowing mode and consume the body
+    req.on('data', (chunk: Buffer) => {
+      chunks.push(chunk)
+    })
+    req.on('end', () => {
+      processBody()
+    })
+    req.on('error', () => {
+      if (!errored && !bodyReceived) {
+        errored = true
+        if (!res.writableEnded) sendJson(res, 400, { error: 'Read error' })
+      }
+    })
+
+    // CRITICAL: explicitly switch to flowing mode. Without this, Node keeps
+    // the request paused and 'end' may fire with 0 bytes (already drained).
+    req.resume()
+    return
+  }
+
+  // Unknown POST
+  return sendJson(res, 404, { error: 'Not Found', path: pathname })
+}
 
 // ============ Socket.io Server ============
 
 const io = new Server(httpServer, {
   path: '/',
-  cors: { origin: '*', methods: ['GET', 'POST'] },
+  cors: false,
   pingTimeout: 60000,
   pingInterval: 25000,
   maxHttpBufferSize: 1e6,
+})
+
+// HACK: Override Socket.io's "check" function. By default it matches ANY URL
+// starting with '/' (since our path is '/'), which means it intercepts our
+// /health, /internal/push etc. requests. We make it ONLY match URLs that look
+// like Socket.io polling/websocket upgrade requests (have EIO= or transport=
+// or sid= in the query string).
+//
+// We do this by replacing the 'request' listener Socket.io registered with a
+// wrapper that conditionally calls Socket.io's handler.
+{
+  const listeners = httpServer.listeners('request')
+  // Socket.io's listener is the only one registered at this point (it removed
+  // ours when attaching). Replace it with a smart wrapper.
+  for (let i = listeners.length - 1; i >= 0; i--) {
+    const l = listeners[i]
+    httpServer.removeListener('request', l)
+    httpServer.on('request', (req, res) => {
+      const url = req.url || '/'
+      const query = url.split('?')[1] || ''
+      const isSocketIoReq = (query.includes('EIO=') || query.includes('transport=') || query.includes('sid='))
+      if (isSocketIoReq) {
+        // Socket.io polling/websocket upgrade — let socket.io handle
+        try { l.call(httpServer, req, res) } catch (e) { console.error('[Gateway] socket.io handler error:', e) }
+      }
+      // Otherwise: not socket.io — do nothing here (other listeners will handle)
+    })
+  }
+}
+
+// CRITICAL: Now register our HTTP handler. Since Socket.io's wrapper only
+// handles requests with EIO=/transport=/sid= query params, our handler will
+// safely process /health, /internal/push, etc. without interference.
+httpServer.on('request', (req, res) => {
+  // Wrap res methods to no-op after end (defensive — shouldn't be needed now)
+  const originalSetHeader = res.setHeader.bind(res)
+  const originalWriteHead = res.writeHead.bind(res)
+  const originalEnd = res.end.bind(res)
+  const originalWrite = res.write.bind(res)
+
+  res.setHeader = function (name: string, value: string | number | readonly string[]) {
+    if (res.writableEnded || res.headersSent) return res
+    try { return originalSetHeader(name, value) } catch { return res }
+  } as typeof res.setHeader
+
+  res.writeHead = function (...args: unknown[]) {
+    if (res.writableEnded) return res
+    try { return originalWriteHead(...args as []) } catch { return res }
+  } as typeof res.writeHead
+
+  res.end = function (...args: unknown[]) {
+    if (res.writableEnded) return res
+    try { return originalEnd(...args as []) } catch { return res }
+  } as typeof res.end
+
+  res.write = function (...args: unknown[]) {
+    if (res.writableEnded) return false
+    try { return originalWrite(...args as []) } catch { return false }
+  } as typeof res.write
+
+  try {
+    httpHandler(req, res)
+  } catch (err) {
+    console.error('[Gateway] httpHandler error:', err)
+    if (!res.writableEnded) {
+      try { originalEnd.call(res, 'Internal Server Error') } catch {}
+    }
+  }
 })
 
 interface ClientData {
@@ -196,8 +471,10 @@ interface ClientData {
 }
 
 io.use((socket: Socket, next) => {
-  const apiKey = (socket.handshake.auth as { apiKey?: string } | undefined)?.apiKey || (socket.handshake.query.apiKey as string | undefined)
-  const userId = (socket.handshake.auth as { userId?: string } | undefined)?.userId || (socket.handshake.query.userId as string | undefined)
+  const auth = socket.handshake.auth as { apiKey?: string; userId?: string } | undefined
+  const query = socket.handshake.query as { apiKey?: string; userId?: string } | undefined
+  const apiKey = auth?.apiKey || query?.apiKey
+  const userId = auth?.userId || query?.userId
   if (!apiKey || typeof apiKey !== 'string') {
     return next(new Error('Missing apiKey'))
   }
@@ -238,6 +515,14 @@ io.on('connection', (socket: Socket) => {
   socket.join(`proj:${projectId}`)
   socket.join(`proj:${projectId}:user:user:${userId}`)
 
+  // Welcome message
+  socket.emit('connected', {
+    socketId: socket.id,
+    projectId,
+    userId,
+    serverTime: Date.now(),
+  })
+
   // ============ Channel Subscription ============
 
   socket.on('channel:subscribe', (channel: unknown, ack?: (res: unknown) => void) => {
@@ -260,10 +545,11 @@ io.on('connection', (socket: Socket) => {
     const room = `proj:${projectId}:chan:${channel}`
     socket.leave(room)
     data.channels.delete(channel)
+    io.to(`proj:${projectId}:presence`).emit('channel:unsubscribed', { channel, userId })
     ack?.({ ok: true, channel })
   })
 
-  // ============ Message Broadcasting ============
+  // ============ Message Broadcasting (client-to-client) ============
 
   socket.on('message', (msg: unknown, ack?: (res: unknown) => void) => {
     const m = msg as { channel?: string; event: string; payload: unknown; targetUserId?: string } | null
@@ -285,14 +571,22 @@ io.on('connection', (socket: Socket) => {
       recipients = io.to(`proj:${projectId}`).emit(m.event, wrappedPayload)
     }
 
-    logAudit(projectId, 'realtime.message', { event: m.event, channel: m.channel, fromUserId: userId, recipients })
+    logEvent(projectId, 'realtime.message', { event: m.event, channel: m.channel, fromUserId: userId, recipients })
     ack?.({ ok: true, recipients })
   })
 
-  // ============ Presence Queries ============
+  // ============ Presence ============
 
   socket.on('presence:get-online', (_data: unknown, ack?: (res: unknown) => void) => {
     ack?.({ users: getOnlineUsers(projectId) })
+  })
+
+  socket.on('presence:get', (targetUserId: unknown, ack?: (res: unknown) => void) => {
+    if (typeof targetUserId !== 'string') {
+      ack?.({ ok: false, error: 'userId is required' })
+      return
+    }
+    ack?.({ user: getUserStatus(projectId, targetUserId) })
   })
 
   socket.on('presence:watch', () => {
@@ -302,8 +596,6 @@ io.on('connection', (socket: Socket) => {
   socket.on('presence:unwatch', () => {
     socket.leave(`proj:${projectId}:presence`)
   })
-
-  // ============ Heartbeat ============
 
   socket.on('activity', () => {
     const k = presenceKey(projectId, userId)
@@ -338,93 +630,6 @@ io.on('connection', (socket: Socket) => {
   })
 })
 
-// ============ Notification Poller ============
-// Polls DB for new in-app notifications and emits them to connected sockets.
-
-let lastPollAt = new Date(0)
-const POLL_INTERVAL_MS = 500
-
-async function pollForInAppNotifications() {
-  try {
-    // Find in-app notifications created since last poll that have at least one pending target
-    const stmt = sqlite.prepare(`
-      SELECT DISTINCT n.id, n.projectId, n.title, n.body, n.imageUrl, n.data, n.createdAt
-      FROM Notification n
-      INNER JOIN NotificationTarget nt ON nt.notificationId = n.id
-      WHERE (n.channel = 'inapp' OR n.channel = 'multi')
-        AND nt.channel = 'inapp'
-        AND nt.status = 'pending'
-        AND n.createdAt > ?
-      ORDER BY n.createdAt ASC
-      LIMIT 100
-    `)
-    const notifications = stmt.all(lastPollAt.toISOString()) as Array<{
-      id: string
-      projectId: string
-      title: string
-      body: string
-      imageUrl: string | null
-      data: string
-      createdAt: string
-    }>
-
-    for (const n of notifications) {
-      // Get targets
-      const targetsStmt = sqlite.prepare(`
-        SELECT nt.id, nt.endUserId, eu.externalId
-        FROM NotificationTarget nt
-        LEFT JOIN EndUser eu ON eu.id = nt.endUserId
-        WHERE nt.notificationId = ? AND nt.channel = 'inapp' AND nt.status = 'pending'
-      `)
-      const targets = targetsStmt.all(n.id) as Array<{ id: string; endUserId: string | null; externalId: string | null }>
-
-      const payload = {
-        notificationId: n.id,
-        title: n.title,
-        body: n.body,
-        imageUrl: n.imageUrl,
-        data: JSON.parse(n.data || '{}'),
-        timestamp: new Date(n.createdAt).getTime(),
-      }
-
-      let delivered = 0
-      const targetIds: string[] = []
-      for (const t of targets) {
-        if (!t.endUserId) continue
-        targetIds.push(t.id)
-        // Emit to user's personal room
-        io.to(`proj:${n.projectId}:user:user:${t.endUserId}`).emit('inapp:notification', payload)
-        delivered++
-      }
-
-      // Mark targets as sent
-      if (targetIds.length > 0) {
-        const placeholders = targetIds.map(() => '?').join(',')
-        sqlite.prepare(`UPDATE NotificationTarget SET status = 'sent', deliveredAt = datetime('now') WHERE id IN (${placeholders})`).run(...targetIds)
-      }
-
-      if (delivered > 0) {
-        logAudit(n.projectId, 'inapp.delivered', { notificationId: n.id, recipients: delivered }, `inapp:${n.projectId}`)
-        console.log(`[Gateway] delivered in-app notification ${n.id} to ${delivered} recipients`)
-      }
-    }
-
-    lastPollAt = new Date()
-  } catch (e) {
-    console.error('[Gateway] poll error:', e)
-  }
-}
-
-setInterval(pollForInAppNotifications, POLL_INTERVAL_MS)
-
-// ============ Stats Logger ============
-
-setInterval(() => {
-  if (io.engine.clientsCount > 0) {
-    console.log(`[Gateway] stats: sockets=${io.engine.clientsCount} presence=${presence.size}`)
-  }
-}, 30000)
-
 // ============ Graceful Shutdown ============
 
 process.on('SIGTERM', () => {
@@ -450,5 +655,7 @@ process.on('SIGINT', () => {
 httpServer.listen(PORT, () => {
   console.log(`[Gateway] UCP Realtime Gateway listening on port ${PORT}`)
   console.log(`[Gateway] Database: ${DB_PATH}`)
-  console.log(`[Gateway] In-app notification poller running every ${POLL_INTERVAL_MS}ms`)
+  console.log(`[Gateway] Internal push endpoint: POST /internal/push (Bearer auth)`)
+  console.log(`[Gateway] Internal presence endpoint: GET /internal/presence (Bearer auth)`)
+  console.log(`[Gateway] NO POLLING — all delivery is push-based`)
 })

@@ -1,13 +1,15 @@
 /**
- * In-App Provider
- * Stores notifications in DB and broadcasts them in realtime via Socket.io.
- * No external service required — fully functional.
+ * In-App Provider (Realtime)
+ * Stores notification + targets in DB, then PUSHES instantly to the Realtime Gateway
+ * via the gateway client (no polling). The gateway delivers to connected sockets.
+ *
+ * If no socket is connected for the user, the notification is still persisted
+ * and can be fetched via REST API later (notification history).
  */
 
 import { BaseProvider } from './base'
 import type { ProviderName, ProviderCapabilities, SendRequest, SendResult } from '@/lib/types'
-import { db } from '@/lib/db'
-import { getEventBus } from '@/lib/adapters'
+import { pushToGateway } from '@/lib/gateway-client'
 import { randomUUID } from 'crypto'
 
 export class InAppProvider extends BaseProvider {
@@ -22,7 +24,7 @@ export class InAppProvider extends BaseProvider {
   }
 
   protected async onValidateCredentials(): Promise<boolean> {
-    return true // In-app always works
+    return true
   }
 
   async send(request: SendRequest): Promise<SendResult> {
@@ -32,31 +34,44 @@ export class InAppProvider extends BaseProvider {
     }
 
     const messageId = `inapp_${randomUUID()}`
-    const eventBus = getEventBus()
+    const projectId = (request.data?.projectId as string) || 'unknown'
+    const notificationId = (request.data?.notificationId as string) || messageId
 
-    // Broadcast via event bus — realtime gateway will forward to connected clients
-    for (const userId of to) {
-      await eventBus.publish({
-        projectId: (request.data?.projectId as string) || 'unknown',
-        type: 'inapp.notification',
-        source: 'notification',
-        payload: {
-          messageId,
-          userId,
-          title: request.title,
-          body: request.body,
-          imageUrl: request.imageUrl,
-          data: request.data,
-          timestamp: Date.now(),
-        },
-        channel: `user:${userId}`,
-      })
+    const basePayload = {
+      notificationId,
+      messageId,
+      title: request.title,
+      body: request.body,
+      imageUrl: request.imageUrl,
+      data: request.data || {},
+      timestamp: Date.now(),
     }
 
+    // Push to each user via gateway (instant, no polling)
+    let pushedRecipients = 0
+    for (const userId of to) {
+      const result = await pushToGateway({
+        target: 'user',
+        projectId,
+        userId,
+        event: 'inapp:notification',
+        payload: basePayload,
+      })
+      if (result && result.recipients > 0) {
+        pushedRecipients++
+      }
+    }
+
+    // Even if no socket was connected (recipients=0), we still return success
+    // because the notification is persisted in DB and can be fetched later.
     return {
       success: true,
       providerMessageId: messageId,
-      metadata: { recipients: to.length },
+      metadata: {
+        recipients: to.length,
+        liveDelivered: pushedRecipients,
+        persisted: true,
+      },
     }
   }
 
