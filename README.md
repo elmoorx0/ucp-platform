@@ -6,22 +6,25 @@
 [![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org/)
 [![Prisma](https://img.shields.io/badge/Prisma-6-blue.svg)](https://www.prisma.io/)
 [![Socket.io](https://img.shields.io/badge/Socket.io-4-black.svg)](https://socket.io/)
+[![Vercel Ready](https://img.shields.io/badge/Vercel-Ready-black.svg)](https://vercel.com/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Live Demo](https://img.shields.io/badge/Live-Demo-brightgreen.svg)](https://github.com/elmoorx0/ucp-platform)
 
 ---
 
-## 📖 الفهرد
+## 📖 الفهرس
 
 - [نظرة عامة](#نظرة-عامة)
 - [المميزات](#المميزات)
 - [البنية التقنية](#البنية-التقنية)
+- [النشر السريع (Vercel + Railway)](#النشر-السريع-vercel--railway)
 - [الخدمات](#الخدمات)
-- [البدء السريع](#البدء-السريع)
+- [البدء السريع (Local Dev)](#البدء-السريع-local-dev)
 - [REST API](#rest-api)
 - [Realtime Gateway](#realtime-gateway)
 - [Provider Abstraction](#provider-abstraction)
 - [لوحة التحكم](#لوحة-التحكم)
-- [الإنتاج](#الإنتاج)
+- [النشر الإنتاجي](#النشر-الإنتاجي)
 
 ---
 
@@ -34,7 +37,7 @@
             │
             │ REST API
             ▼
-Universal Communication Platform
+Universal Communication Platform (Next.js on Vercel)
             │
  ┌──────────┼──────────┐
  │          │          │
@@ -43,7 +46,7 @@ Notification  Realtime  Event Bus
  ├── FCM
  ├── Email SMTP
  ├── Web Push
- ├── In-App
+ ├── In-App (via Realtime Gateway)
  └── أي Provider آخر
             │
             ▼
@@ -62,20 +65,65 @@ Notification  Realtime  Event Bus
 - ✅ **قابلية توسع** — من مشروع صغير إلى ملايين المستخدمين
 - ✅ **أمان** — JWT + API Keys مع scopes + bcrypt-style hashing (scrypt)
 - ✅ **Audit Log** — تتبع كل عملية في النظام
+- ✅ **Vercel-Ready** — متوافق تماماً مع Vercel + Railway + Neon Postgres
 
 ---
 
 ## 🏗 البنية التقنية
 
-| المكون | التقنية |
-|--------|---------|
-| **Frontend & API** | Next.js 16 (App Router) + TypeScript 5 |
-| **Database** | Prisma ORM + SQLite (dev) / PostgreSQL (production) |
-| **Realtime** | Socket.io + Bun (mini-service منفصل) |
-| **Caching** | In-memory (dev) / Redis (production) |
-| **UI** | Tailwind CSS 4 + shadcn/ui + Recharts |
-| **Auth** | JWT (Dashboard) + API Keys (Clients) |
-| **Process Runtime** | Bun (للـ Gateway) + Node.js (للـ Next.js) |
+| المكون | التقنية | الاستضافة المقترحة |
+|--------|---------|---------------------|
+| **Frontend & API** | Next.js 16 (App Router) + TypeScript 5 | Vercel |
+| **Database** | Prisma ORM + PostgreSQL | Neon / Vercel Postgres |
+| **Realtime Gateway** | Socket.io + Bun (mini-service منفصل) | Railway / Render / Fly.io |
+| **Caching (اختياري)** | Redis (للـ multi-instance) | Upstash / Redis Cloud |
+| **UI** | Tailwind CSS 4 + shadcn/ui + Recharts | (مدمج في Vercel) |
+| **Auth** | JWT (Dashboard) + API Keys (Clients) | (مدمج) |
+| **Process Runtime** | Bun (Gateway) + Node.js (Next.js) | — |
+
+> 📖 **للتفاصيل الكاملة للنشر**: راجع [DEPLOYMENT.md](DEPLOYMENT.md)
+
+---
+
+## 🚀 النشر السريع (Vercel + Railway)
+
+### 1. قاعدة البيانات (Neon Postgres - مجاني)
+1. اذهب إلى https://neon.tech وأنشئ مشروع
+2. انسخ الـ connection string
+
+### 2. تطبيق Next.js (Vercel)
+1. اذهب إلى https://vercel.com/new
+2. استورد الـ repo: `elmoorx0/ucp-platform`
+3. أضف Environment Variables:
+   ```
+   DATABASE_PROVIDER=postgresql
+   DATABASE_URL=postgresql://...?sslmode=require&pgbouncer=true&connect_timeout=15
+   JWT_SECRET=(openssl rand -base64 48)
+   API_KEY_HASH_SECRET=(openssl rand -base64 32)
+   INTERNAL_API_TOKEN=(openssl rand -base64 32)
+   REALTIME_GATEWAY_URL=https://your-gateway.up.railway.app
+   ```
+4. Deploy ✅
+
+### 3. Realtime Gateway (Railway)
+1. اذهب إلى https://railway.app → New Project → Deploy from GitHub
+2. Root Directory: `mini-services/realtime-gateway`
+3. أضف نفس Environment Variables (بدون `pgbouncer=true`)
+4. Generate Domain → انسخ URL
+5. عُد إلى Vercel وحدّث `REALTIME_GATEWAY_URL`
+
+### 4. تهيئة قاعدة البيانات
+```bash
+# محلياً مع DATABASE_URL الخاص بالإنتاج
+DATABASE_PROVIDER=postgresql DATABASE_URL=your-prod-url bun run db:push
+
+# ثم Seed
+curl -X POST https://your-app.vercel.app/api/dashboard/seed?force=true
+```
+
+🎉 **المنصة جاهزة للإنتاج!**
+
+> 📖 **دليل مفصل**: [DEPLOYMENT.md](DEPLOYMENT.md)
 
 ---
 
@@ -91,6 +139,7 @@ Notification  Realtime  Event Bus
 
 ### 3. Realtime Gateway
 Socket.io server منفصل للـ WebSocket connections، مع Presence tracking و Push HTTP API داخلي.
+**يستخدم PostgreSQL في الإنتاج و SQLite في التطوير المحلي** (نفس الـ codebase).
 
 ### 4. Event Bus
 نشر واشتراك الأحداث بين الخدمات + استمرارها في DB للـ audit و replay.
@@ -100,7 +149,7 @@ Socket.io server منفصل للـ WebSocket connections، مع Presence trackin
 
 ---
 
-## 🚀 البدء السريع
+## 🚀 البدء السريع (Local Dev)
 
 ### المتطلبات
 - Node.js 18+ أو Bun
@@ -110,32 +159,32 @@ Socket.io server منفصل للـ WebSocket connections، مع Presence trackin
 
 ```bash
 # استنساخ المشروع
-git clone https://github.com/USERNAME/ucp-platform.git
+git clone https://github.com/elmoorx0/ucp-platform.git
 cd ucp-platform
 
 # تثبيت الـ dependencies
-bun install  # أو npm install
+bun install
 
 # تثبيت dependencies للـ Gateway
-cd mini-services/realtime-gateway
-bun install
-cd ../..
+cd mini-services/realtime-gateway && bun install && cd ../..
+
+# إنشاء ملف .env
+cp .env.example .env
 ```
 
 ### التشغيل
 
 ```bash
-# 1. تشغيل الـ Realtime Gateway (في terminal منفصل)
-cd mini-services/realtime-gateway
-bun index.ts
+# 1. مزامنة قاعدة البيانات (SQLite محلي)
+bun run db:push
+
+# 2. تشغيل الـ Realtime Gateway (في terminal منفصل)
+bun run gateway
 # Gateway يعمل على http://localhost:3003
 
-# 2. تشغيل Next.js (في terminal آخر)
+# 3. تشغيل Next.js (في terminal آخر)
 bun run dev
 # Next.js يعمل على http://localhost:3000
-
-# 3. مزامنة قاعدة البيانات
-bun run db:push
 ```
 
 ### الدخول للـ Dashboard
@@ -244,14 +293,19 @@ POST /api/v1/realtime
 
 ## ⚡ Realtime Gateway
 
-الـ Gateway يعمل كـ mini-service منفصل على المنفذ 3003 باستخدام Bun + Socket.io.
+الـ Gateway يعمل كـ mini-service منفصل باستخدام Bun + Socket.io. يدعم **كلاً من SQLite (dev) و PostgreSQL (production)** عبر نفس الـ codebase.
 
 ### الاتصال من العميل
 
 ```typescript
 import { io } from 'socket.io-client'
 
-const socket = io('/?XTransformPort=3003', {
+// للإنتاج: استخدم URL الخاص بالـ Gateway على Railway/Render
+const GATEWAY_URL = process.env.NODE_ENV === 'production'
+  ? 'https://your-gateway.up.railway.app'
+  : 'http://localhost:3003'
+
+const socket = io(GATEWAY_URL, {
   auth: {
     apiKey: 'ucp_live_xxx',
     userId: 'user-001'
@@ -320,25 +374,16 @@ export class MyProvider extends BaseProvider {
   }
 
   protected async onValidateCredentials(): Promise<boolean> {
-    // تحقق من الـ credentials
     return true
   }
 
   async send(request: SendRequest): Promise<SendResult> {
-    // أرسل الإشعار عبر الـ provider
     return { success: true, providerMessageId: 'xxx' }
   }
 }
 ```
 
-ثم سجّله في `src/lib/providers/registry.ts`:
-
-```typescript
-const PROVIDER_FACTORIES: Record<ProviderName, () => Provider> = {
-  // ... existing providers
-  my_provider: () => new MyProvider(),
-}
-```
+ثم سجّله في `src/lib/providers/registry.ts`.
 
 ### Providers المتوفرة
 
@@ -370,77 +415,30 @@ Dashboard شامل على `/` يحتوي على:
 
 ---
 
-## 🏭 الإنتاج
+## 🏭 النشر الإنتاجي
 
-### متغيرات البيئة المطلوبة
+### دليل مفصل
 
-```env
-# Database
-DATABASE_URL="postgresql://user:pass@localhost:5432/ucp"
+راجع **[DEPLOYMENT.md](DEPLOYMENT.md)** للحصول على دليل كامل خطوة بخطوة يشمل:
 
-# JWT
-JWT_SECRET="your-super-secret-jwt-key-min-32-chars"
+- ✅ إنشاء قاعدة بيانات PostgreSQL على Neon
+- ✅ نشر Next.js على Vercel مع كل Environment Variables
+- ✅ نشر Realtime Gateway على Railway / Render / Fly.io
+- ✅ Dockerfile جاهز + railway.toml + render.yaml
+- ✅ التحقق من النشر + Troubleshooting
+- ✅ تقدير التكاليف (Free tier: $0/mo)
 
-# API Key hashing
-API_KEY_HASH_SECRET="your-api-key-hash-secret"
+### الأهداف المدعومة
 
-# Internal API token (Next.js ↔ Gateway)
-INTERNAL_API_TOKEN="your-internal-api-token"
+| المكون | المنصات المدعومة |
+|--------|------------------|
+| **Next.js App** | Vercel (موصى به)، Netlify، Self-hosted (Docker) |
+| **Realtime Gateway** | Railway، Render، Fly.io، DigitalOcean، Self-hosted (Docker) |
+| **Database** | Neon، Vercel Postgres، Supabase، Railway Postgres، Self-hosted |
 
-# Gateway URL
-REALTIME_GATEWAY_URL="http://gateway:3003"
+### متغيرات البيئة المطلوبة للإنتاج
 
-# Redis (للـ multi-instance)
-REDIS_URL="redis://localhost:6379"
-```
-
-### خطوات الإنتاج
-
-1. **بدّل SQLite بـ PostgreSQL** في `prisma/schema.prisma`:
-   ```prisma
-   datasource db {
-     provider = "postgresql"
-     url      = env("DATABASE_URL")
-   }
-   ```
-
-2. **فعّل Redis** للـ Event Bus (multi-instance support)
-
-3. **ثبّت الـ dependencies الحقيقية**:
-   ```bash
-   bun add firebase-admin nodemailer web-push
-   ```
-
-4. **شغّل الـ Gateway كـ systemd service** أو Docker container
-
-5. **استخدم Nginx/Caddy** كـ reverse proxy مع TLS
-
-### Docker (مستقبلاً)
-
-```yaml
-# docker-compose.yml (مثال)
-services:
-  app:
-    build: .
-    ports: ["3000:3000"]
-    env_file: .env
-    depends_on: [db, redis, gateway]
-  
-  gateway:
-    build: ./mini-services/realtime-gateway
-    ports: ["3003:3003"]
-    env_file: .env
-  
-  db:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: ucp
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes: ["pgdata:/var/lib/postgresql/data"]
-  
-  redis:
-    image: redis:7-alpine
-```
+راجع **[.env.example](.env.example)** للقائمة الكاملة.
 
 ---
 
@@ -479,12 +477,19 @@ ucp-platform/
 │       ├── gateway-client.ts    # HTTP client للـ Gateway
 │       └── dashboard-api.ts     # API client للـ Dashboard
 ├── prisma/
-│   └── schema.prisma            # Database schema (multi-tenant)
+│   └── schema.prisma            # Database schema (multi-tenant, SQLite+PostgreSQL)
 ├── mini-services/
 │   └── realtime-gateway/        # Socket.io gateway (Bun)
-│       ├── index.ts
-│       └── package.json
-├── Caddyfile                    # Reverse proxy config
+│       ├── index.ts             # Main entry (supports SQLite + PostgreSQL)
+│       ├── Dockerfile           # For Railway/Render/Fly.io
+│       ├── railway.toml         # Railway config
+│       ├── render.yaml          # Render blueprint
+│       ├── package.json
+│       └── tsconfig.json
+├── vercel.json                  # Vercel deployment config
+├── .env.example                 # Environment variables template
+├── DEPLOYMENT.md                # Detailed deployment guide
+├── Caddyfile                    # Reverse proxy config (for self-hosting)
 └── package.json
 ```
 
@@ -513,7 +518,10 @@ MIT License — راجع ملف [LICENSE](LICENSE) للتفاصيل.
 - [Socket.io](https://socket.io/)
 - [shadcn/ui](https://ui.shadcn.com/)
 - [Bun](https://bun.sh/)
+- [Vercel](https://vercel.com/)
+- [Neon](https://neon.tech/)
+- [Railway](https://railway.app/)
 
 ---
 
-**صُنع بعناية كمنصة CPaaS جاهزة للإنتاج** 🚀
+**صُنع بعناية كمنصة CPaaS جاهزة للإنتاج على Vercel** 🚀

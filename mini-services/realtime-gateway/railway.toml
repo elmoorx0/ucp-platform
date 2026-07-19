@@ -1,0 +1,27 @@
+# ============================================================
+# Railway deployment config for UCP Realtime Gateway
+# Docs: https://docs.railway.app/deploy/config-as-code
+# ============================================================
+
+[deploy]
+# The Gateway listens on $PORT (Railway auto-injects this).
+# Our index.ts uses `process.env.PORT || 3003`, so we just need to set PORT.
+# Railway does this automatically — no config needed here.
+
+[build]
+dockerfile = "Dockerfile"
+
+# Health check URL (Railway will ping this to verify the service is up)
+[[deploy.healthchecks]]
+grace_period_seconds = 10
+interval_seconds = 30
+path = "/health"
+timeout_seconds = 5
+
+# Environment variables that MUST be set in the Railway dashboard:
+# - DATABASE_PROVIDER=postgresql
+# - DATABASE_URL=<your-postgres-connection-string>
+# - API_KEY_HASH_SECRET=<same-as-vercel>
+# - INTERNAL_API_TOKEN=<same-as-vercel>
+# - JWT_SECRET=<same-as-vercel>
+# - PORT=3003 (or let Railway auto-inject)

@@ -1,0 +1,29 @@
+# ============================================================
+# Render Blueprint for UCP Realtime Gateway
+# Docs: https://render.com/docs/blueprint-spec
+# ============================================================
+
+services:
+  - type: web
+    name: ucp-realtime-gateway
+    runtime: docker
+    plan: free  # upgrade to 'starter' for production (no sleep)
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 3003
+      - key: DATABASE_PROVIDER
+        value: postgresql
+      - key: DATABASE_URL
+        sync: false  # set manually — your Postgres connection string
+      - key: API_KEY_HASH_SECRET
+        sync: false  # set manually — must match Vercel
+      - key: INTERNAL_API_TOKEN
+        sync: false  # set manually — must match Vercel
+      - key: JWT_SECRET
+        sync: false  # set manually — must match Vercel
+      - key: NODE_ENV
+        value: production
