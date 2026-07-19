@@ -12,5 +12,10 @@
       "NEXT_TELEMETRY_DISABLED": "1"
     }
   },
-  "crons": []
+  "crons": [
+    {
+      "path": "/api/internal/retry?limit=50",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

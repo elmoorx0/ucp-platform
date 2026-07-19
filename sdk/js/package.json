@@ -1,0 +1,29 @@
+{
+  "name": "ucp-platform-sdk",
+  "version": "1.0.0",
+  "description": "JavaScript/TypeScript SDK for UCP (Universal Communication Platform)",
+  "main": "index.ts",
+  "types": "index.ts",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "bun build index.ts --outdir dist --target node",
+    "build:browser": "bun build index.ts --outfile dist/index.umd.js --target browser --minify"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.7.5"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.4",
+    "typescript": "^5"
+  },
+  "keywords": [
+    "ucp",
+    "cpaas",
+    "notifications",
+    "realtime",
+    "socket.io",
+    "push",
+    "communication-platform"
+  ]
+}

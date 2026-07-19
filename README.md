@@ -8,6 +8,7 @@
 [![Socket.io](https://img.shields.io/badge/Socket.io-4-black.svg)](https://socket.io/)
 [![SQLite](https://img.shields.io/badge/SQLite-Turso-blue.svg)](https://turso.tech/)
 [![Vercel Ready](https://img.shields.io/badge/Vercel-Ready-black.svg)](https://vercel.com/)
+[![CI](https://github.com/elmoorx0/ucp-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/elmoorx0/ucp-platform/actions)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
@@ -67,6 +68,13 @@ Notification  Realtime  Event Bus
 - ✅ **Audit Log** — تتبع كل عملية في النظام
 - ✅ **SQLite Everywhere** — SQLite محلياً، Turso (libSQL) للإنتاج — نفس الـ schema
 - ✅ **Vercel-Ready** — متوافق تماماً مع Vercel + Railway + Turso
+- ✅ **Rate Limiting** — حماية من الإفراط في الطلبات (sliding window)
+- ✅ **Notification Templates** — قوالب جاهزة مع دعم i18n (en, ar, fr)
+- ✅ **Webhook Delivery Receipts** — إيصالات تسليم موقعة بـ HMAC-SHA256
+- ✅ **Automatic Retries** — إعادة محاولة تلقائية مع exponential backoff
+- ✅ **OpenAPI Documentation** — مواصفات Swagger متاحة على `/api/docs`
+- ✅ **JavaScript SDK** — مكتبة عميل جاهزة للاستخدام
+- ✅ **CI/CD** — GitHub Actions للفحص التلقائي عند كل push
 
 ---
 
@@ -287,6 +295,7 @@ POST /api/v1/realtime
 | `GET` | `/api/v1/notifications` | قائمة الإشعارات |
 | `GET` | `/api/v1/notifications/:id` | تفاصيل إشعار |
 | `POST` | `/api/v1/notifications/:id/cancel` | إلغاء إشعار |
+| `POST` | `/api/v1/notifications/send-template` | إرسال من قالب |
 | `POST` | `/api/v1/devices` | تسجيل جهاز |
 | `GET` | `/api/v1/devices` | قائمة الأجهزة |
 | `POST` | `/api/v1/users` | تسجيل مستخدم |
@@ -298,6 +307,105 @@ POST /api/v1/realtime
 | `GET/POST` | `/api/v1/providers` | إعداد Providers |
 | `POST` | `/api/v1/realtime` | Broadcast |
 | `GET` | `/api/v1/channels` | قائمة القنوات |
+| `GET` | `/api/v1/templates` | قائمة القوالب |
+| `POST` | `/api/v1/webhooks/test` | اختبار الـ webhook |
+| `GET` | `/api/docs` | مواصفات OpenAPI (Swagger) |
+| `GET` | `/api/health` | فحص صحة النظام |
+
+### توثيق OpenAPI (Swagger)
+
+مواصفات OpenAPI 3.0 متاحة على `/api/docs`. يمكن استيرادها مباشرة في:
+- [Swagger UI](https://petstore.swagger.io/) — الصق رابط `/api/docs`
+- [Postman](https://www.postman.com/) — Import → Link → الصق الرابط
+- [Insomnia](https://insomnia.rest/) — Import → From URL
+
+### Rate Limiting
+
+كل API key له حد افتراضي 1000 طلب/دقيقة. الاستجابات تتضمن headers:
+```
+X-RateLimit-Limit: 1000
+X-RateLimit-Remaining: 999
+X-RateLimit-Reset: 1784432400
+```
+
+عند تجاوز الحد، الـ API يُرجع `429 Too Many Requests` مع header `Retry-After`.
+
+### Notification Templates
+
+قوالب جاهزة مع دعم متعدد اللغات:
+
+| Template | الوصف | اللغات |
+|----------|--------|--------|
+| `welcome` | ترحيب بمستخدم جديد | en, ar, fr |
+| `order_shipped` | تم شحن الطلب | en, ar |
+| `otp` | رمز تحقق | en, ar |
+| `password_reset` | إعادة تعيين كلمة المرور | en, ar |
+| `new_message` | رسالة جديدة | en, ar |
+| `payment_succeeded` | نجح الدفع | en, ar |
+| `payment_failed` | فشل الدفع | en, ar |
+
+استخدام:
+```http
+POST /api/v1/notifications/send-template
+{
+  "template": "welcome",
+  "variables": { "name": "Alice", "appName": "MyApp" },
+  "locale": "ar",
+  "to": ["user-001"],
+  "channel": "inapp"
+}
+```
+
+### Webhook Delivery Receipts
+
+عند تسليم إشعار، يتم إرسال POST لمشروعك (لو configured `webhookUrl`):
+
+```http
+POST /your-webhook-url
+Content-Type: application/json
+X-UCP-Signature: sha256=abc123...
+X-UCP-Event: notification.delivered
+
+{
+  "event": "notification.delivered",
+  "timestamp": "2026-07-20T12:00:00.000Z",
+  "data": {
+    "notificationId": "cmrr8...",
+    "targetId": "cmrr8...",
+    "projectId": "cmrr8...",
+    "channel": "inapp",
+    "status": "delivered",
+    "endUserId": "cmrr8...",
+    "providerMessageId": "inapp_abc123",
+    "error": null,
+    "attempts": 1
+  }
+}
+```
+
+التحقق من التوقيع:
+```typescript
+import { createHmac } from 'crypto'
+
+function verifyWebhook(payload: string, signature: string, secret: string): boolean {
+  const expected = 'sha256=' + createHmac('sha256', secret).update(payload).digest('hex')
+  return expected === signature  // Use constant-time comparison in production
+}
+```
+
+### Automatic Retries
+
+الإشعارات الفاشلة تُعاد تلقائياً مع exponential backoff:
+
+| المحاولة | التأخير |
+|----------|---------|
+| 1 | فوري |
+| 2 | 30 ثانية |
+| 3 | 2 دقيقة |
+| 4 | 10 دقائق |
+| 5 | 1 ساعة |
+
+يتم تشغيل الـ retry عبر **Vercel Cron** (كل 5 دقائق) يستدعي `/api/internal/retry`.
 
 ---
 
@@ -466,7 +574,7 @@ Dashboard شامل على `/` يحتوي على:
 
 ---
 
-## 📁 بنية المشروع
+## 📦 بنية المشروع
 
 ```
 ucp-platform/
@@ -475,6 +583,8 @@ ucp-platform/
 │   │   ├── api/
 │   │   │   ├── v1/              # REST API للـ clients
 │   │   │   │   ├── notifications/
+│   │   │   │   │   ├── send-template/  # إرسال من قالب
+│   │   │   │   │   └── [id]/cancel/
 │   │   │   │   ├── devices/
 │   │   │   │   ├── users/
 │   │   │   │   ├── projects/
@@ -483,8 +593,12 @@ ucp-platform/
 │   │   │   │   ├── presence/
 │   │   │   │   ├── realtime/
 │   │   │   │   ├── stats/
-│   │   │   │   └── channels/
+│   │   │   │   ├── channels/
+│   │   │   │   ├── templates/        # قوالب الإشعارات
+│   │   │   │   └── webhooks/test/    # اختبار webhook
 │   │   │   ├── dashboard/       # API للوحة التحكم
+│   │   │   ├── internal/retry/  # Vercel Cron endpoint
+│   │   │   ├── docs/            # OpenAPI/Swagger spec
 │   │   │   └── health/
 │   │   ├── page.tsx             # Dashboard SPA
 │   │   └── layout.tsx
@@ -493,14 +607,25 @@ ucp-platform/
 │   │   └── dashboard/           # Dashboard views
 │   └── lib/
 │       ├── adapters/            # Event Bus adapter
-│       ├── middleware/          # Auth middleware
+│       ├── middleware/          # Auth + rate-limit middleware
 │       ├── providers/           # Notification providers
 │       ├── services/            # Business logic
+│       │   ├── identity.ts
+│       │   ├── notification.ts
+│       │   ├── eventbus.ts
+│       │   ├── presence.ts
+│       │   ├── templates.ts     # قوالب الإشعارات + i18n
+│       │   ├── webhook.ts       # Webhook delivery receipts
+│       │   └── retry.ts         # Exponential backoff retries
 │       ├── types/               # TypeScript types
 │       ├── crypto.ts            # JWT + API Key + password hashing
 │       ├── db.ts                # Prisma client (SQLite + Turso)
 │       ├── gateway-client.ts    # HTTP client للـ Gateway
 │       └── dashboard-api.ts     # API client للـ Dashboard
+├── sdk/js/                      # JavaScript Client SDK
+│   ├── index.ts                 # Main entry
+│   ├── package.json
+│   └── README.md
 ├── prisma/
 │   └── schema.prisma            # Database schema (SQLite/Turso — same)
 ├── mini-services/
@@ -511,12 +636,72 @@ ucp-platform/
 │       ├── render.yaml          # Render blueprint
 │       ├── package.json
 │       └── tsconfig.json
-├── vercel.json                  # Vercel deployment config
+├── .github/workflows/
+│   ├── ci.yml                   # Lint + type-check + build
+│   └── deploy.yml               # Vercel deployment
+├── vercel.json                  # Vercel config + Cron jobs
 ├── .env.example                 # Environment variables template
 ├── DEPLOYMENT.md                # Detailed deployment guide
 ├── Caddyfile                    # Reverse proxy config (for self-hosting)
 └── package.json
 ```
+
+---
+
+## 📚 JavaScript SDK
+
+توفّر مكتبة `ucp-platform-sdk` واجهة بسيطة للاستخدام من المتصفح أو Node.js:
+
+### التثبيت
+
+```bash
+npm install ucp-platform-sdk
+# أو
+bun add ucp-platform-sdk
+```
+
+### الاستخدام
+
+```typescript
+import { UCP } from 'ucp-platform-sdk'
+
+const ucp = new UCP({
+  apiUrl: 'https://your-app.vercel.app',
+  gatewayUrl: 'https://your-gateway.up.railway.app',
+  apiKey: 'ucp_live_xxx',
+})
+
+// إرسال إشعار
+await ucp.notifications.send({
+  channel: 'inapp',
+  to: ['user-001'],
+  title: 'Hello',
+  body: 'World',
+})
+
+// إرسال من قالب مع متغيرات
+await ucp.notifications.sendTemplate('welcome', { name: 'Alice' }, {
+  to: ['user-001'],
+  locale: 'ar',
+})
+
+// تسجيل جهاز
+await ucp.devices.register({
+  externalUserId: 'user-001',
+  token: 'firebase-token',
+  platform: 'android',
+})
+
+// الاتصال بالـ Realtime
+const socket = ucp.realtime.connect('user-001')
+socket.on('inapp:notification', (data) => console.log('Got notif:', data))
+socket.emit('channel:subscribe', 'orders')
+
+// التحقق من webhook signature (في خادمك)
+const isValid = ucp.webhooks.verifySignature(payload, signature, secret)
+```
+
+راجع **[sdk/js/README.md](sdk/js/README.md)** للتوثيق الكامل.
 
 ---
 
@@ -527,6 +712,20 @@ ucp-platform/
 3. Commit التغييرات (`git commit -m 'Add amazing feature'`)
 4. Push للـ branch (`git push origin feature/amazing-feature`)
 5. افتح Pull Request
+
+### CI/CD
+
+يحتوي المشروع على GitHub Actions workflows:
+
+- **`.github/workflows/ci.yml`**: يُشغّل عند كل push/PR:
+  - ✅ ESLint check
+  - ✅ TypeScript type-check
+  - ✅ Next.js build
+  - ✅ Docker build للـ Gateway
+  - ✅ Smoke test للـ Gateway
+
+- **`.github/workflows/deploy.yml`**: يُشغّل عند push لـ `main`:
+  - 🚀 نشر تلقائي على Vercel (يتطلب إعداد `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` كـ GitHub secrets)
 
 ---
 

@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-build:
+    name: Lint, Type-Check & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        env:
+          DATABASE_URL: "file:./db/test.db"
+        run: bun run db:generate
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Type check
+        run: bunx tsc --noEmit
+
+      - name: Build
+        env:
+          DATABASE_URL: "file:./db/test.db"
+          JWT_SECRET: "ci-test-secret-min-32-chars-long-please"
+          API_KEY_HASH_SECRET: "ci-test-api-key-secret"
+          INTERNAL_API_TOKEN: "ci-test-internal-token"
+          REALTIME_GATEWAY_URL: "http://localhost:3003"
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: bun run build
+
+  gateway-build:
+    name: Build Gateway Docker Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Gateway image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./mini-services/realtime-gateway
+          file: ./mini-services/realtime-gateway/Dockerfile
+          push: false
+          tags: ucp-realtime-gateway:ci
+          load: true
+
+      - name: Test Gateway starts
+        run: |
+          docker run -d --name gw-test -p 3003:3003 \
+            -e DATABASE_URL="file:./db/test.db" \
+            -e INTERNAL_API_TOKEN="test-token" \
+            ucp-realtime-gateway:ci
+          sleep 5
+          curl -sf http://localhost:3003/health | jq -e '.ok == true'
+          docker stop gw-test || true
+          docker rm gw-test || true
