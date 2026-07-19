@@ -1,0 +1,364 @@
+// ============================================================
+// Universal Communication Platform (UCP) - Prisma Schema
+// Production-grade multi-tenant schema for CPaaS platform
+// Compatible with SQLite (dev) and PostgreSQL (production)
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// Identity Service - Multi-tenant organization & access control
+// ============================================================
+
+/// A tenant (organization) that uses the platform. Each tenant can have multiple projects.
+model Tenant {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  status      String    @default("active") // active | suspended | deleted
+  plan        String    @default("free") // free | pro | enterprise
+  metadata    String?   // JSON string for extra fields
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  users       User[]
+  projects    Project[]
+  auditLogs   AuditLog[]
+}
+
+/// Dashboard users (admins/managers) — NOT end-users (recipients)
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  name            String?
+  passwordHash    String
+  role            String    @default("viewer") // super_admin | tenant_admin | manager | viewer
+  status          String    @default("active") // active | suspended | deleted
+  lastLoginAt     DateTime?
+  avatarUrl       String?
+  tenantId        String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  tenant          Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  auditLogs       AuditLog[]
+
+  @@index([tenantId])
+  @@index([role])
+}
+
+/// A project represents an application that uses UCP (e.g. "Mobile App", "Web Dashboard")
+model Project {
+  id              String    @id @default(cuid())
+  tenantId        String
+  name            String
+  slug            String
+  description     String?
+  status          String    @default("active") // active | paused | archived
+  iconUrl         String?
+  webhookUrl      String?   // For delivery receipts
+  metadata        String?   // JSON
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  apiKeys         ApiKey[]
+  endUsers        EndUser[]
+  devices         Device[]
+  notifications   Notification[]
+  providers       ProviderConfig[]
+  events          Event[]
+  realtimeChannels RealtimeChannel[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@index([status])
+}
+
+/// API keys issued per-project for client authentication
+model ApiKey {
+  id              String    @id @default(cuid())
+  projectId       String
+  name            String
+  keyPrefix       String    // First 8 chars for identification (e.g. "ucp_live_")
+  hashedKey       String    @unique // bcrypt-hashed full key
+  scopes          String    @default("[]") // JSON array: ["notifications:send","devices:register"]
+  permissions     String    @default("[]") // JSON array
+  rateLimitPerMin Int       @default(1000)
+  lastUsedAt      DateTime?
+  lastUsedIp      String?
+  expiresAt       DateTime?
+  status          String    @default("active") // active | revoked | expired
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  auditLogs       AuditLog[]
+
+  @@index([projectId])
+  @@index([hashedKey])
+  @@index([status])
+}
+
+// ============================================================
+// End Users & Devices (recipients of notifications)
+// ============================================================
+
+/// End users (recipients) registered by client apps
+model EndUser {
+  id              String    @id @default(cuid())
+  projectId       String
+  externalId      String    // The user ID in the client's system
+  email           String?
+  phone           String?
+  name            String?
+  avatarUrl       String?
+  language        String    @default("en")
+  timezone        String    @default("UTC")
+  tags            String    @default("[]") // JSON array
+  attributes      String    @default("{}") // JSON object
+  status          String    @default("active")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  devices         Device[]
+  notifications   NotificationTarget[]
+
+  @@unique([projectId, externalId])
+  @@index([projectId, externalId])
+  @@index([email])
+}
+
+/// Registered devices (browser, mobile) for push notifications
+model Device {
+  id              String    @id @default(cuid())
+  projectId       String
+  endUserId       String
+  token           String    @unique // FCM token / Web Push endpoint
+  platform        String    // web | android | ios
+  userAgent       String?
+  appVersion      String?
+  // Web Push subscription (VAPID) — JSON-encoded
+  pushSubscription String?  // JSON: { endpoint, keys: { p256dh, auth } }
+  status          String    @default("active") // active | inactive | invalid
+  lastSeenAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  endUser         EndUser   @relation(fields: [endUserId], references: [id], onDelete: Cascade)
+  notificationTargets NotificationTarget[]
+
+  @@index([projectId, endUserId])
+  @@index([projectId, status])
+}
+
+// ============================================================
+// Notification Service
+// ============================================================
+
+/// Notification record — one notification may target multiple recipients
+model Notification {
+  id              String    @id @default(cuid())
+  projectId       String
+  // Routing
+  channel         String    // push | email | inapp | webpush | sms | multi
+  // Content
+  title           String
+  body            String
+  imageUrl        String?
+  data            String    @default("{}") // JSON: custom payload
+  // Targeting
+  targetingType   String    @default("user") // user | topic | segment | broadcast
+  targetingData   String    @default("{}") // JSON: { userIds, topic, segment }
+  // Provider selection
+  providerName    String?   // Specific provider to use; null = auto-select
+  // Status
+  status          String    @default("pending") // pending | queued | sending | sent | partial | failed | cancelled
+  priority        String    @default("normal") // low | normal | high
+  scheduledAt     DateTime?
+  sentAt          DateTime?
+  // Stats
+  totalTargets    Int       @default(0)
+  deliveredCount  Int       @default(0)
+  failedCount     Int       @default(0)
+  pendingCount    Int       @default(0)
+  // Tracking
+  externalId      String?   // Client-supplied idempotency key
+  metadata        String    @default("{}") // JSON
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  targets         NotificationTarget[]
+
+  @@index([projectId, status])
+  @@index([projectId, channel])
+  @@index([projectId, createdAt])
+  @@index([scheduledAt])
+}
+
+/// Per-target delivery record (one per recipient/device)
+model NotificationTarget {
+  id              String    @id @default(cuid())
+  notificationId  String
+  endUserId       String?
+  deviceId        String?
+  // Delivery
+  channel         String    // push | email | inapp | webpush
+  providerName    String?
+  status          String    @default("pending") // pending | sent | delivered | failed | bounced
+  providerMessageId String? // Message ID returned by provider
+  attempts        Int       @default(0)
+  lastError       String?
+  deliveredAt     DateTime?
+  // Read tracking
+  readAt          DateTime?
+  clickedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  notification    Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  endUser         EndUser?  @relation(fields: [endUserId], references: [id], onDelete: SetNull)
+  device          Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([notificationId])
+  @@index([endUserId])
+  @@index([deviceId])
+  @@index([status])
+}
+
+// ============================================================
+// Provider Configuration
+// ============================================================
+
+/// Provider configuration per project (e.g. FCM credentials, SMTP settings)
+model ProviderConfig {
+  id              String    @id @default(cuid())
+  projectId       String
+  name            String    // fcm | email_smtp | webpush | inapp | onesignal | twilio
+  displayName     String?
+  // Encrypted credentials JSON (e.g. service account, SMTP password, VAPID keys)
+  credentials     String    // JSON (encrypted in production)
+  // Configuration: from address, region, etc.
+  config          String    @default("{}") // JSON
+  isDefault       Boolean   @default(false)
+  enabled         Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, name])
+  @@index([projectId, enabled])
+}
+
+// ============================================================
+// Event Bus - Cross-service event log
+// ============================================================
+
+model Event {
+  id              String    @id @default(cuid())
+  projectId       String
+  type            String    // notification.sent | device.registered | user.connected | ...
+  source          String    // identity | notification | realtime | presence | external
+  // Payload JSON
+  payload         String    @default("{}") // JSON
+  // Routing
+  channel         String?   // Event channel for filtering
+  // Delivery
+  delivered       Boolean   @default(false)
+  deliveredAt     DateTime?
+  subscriberCount Int       @default(0)
+  createdAt       DateTime  @default(now())
+
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, type])
+  @@index([projectId, createdAt])
+  @@index([channel, delivered])
+}
+
+// ============================================================
+// Realtime Service
+// ============================================================
+
+model RealtimeChannel {
+  id              String    @id @default(cuid())
+  projectId       String
+  name            String    // Channel name (e.g. "orders", "user.123")
+  type            String    @default("public") // public | private | presence
+  metadata        String    @default("{}") // JSON
+  subscriberCount Int       @default(0)
+  lastActivityAt  DateTime?
+  createdAt       DateTime  @default(now())
+
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, name])
+  @@index([projectId, type])
+}
+
+// ============================================================
+// Audit Log
+// ============================================================
+
+model AuditLog {
+  id              String    @id @default(cuid())
+  tenantId        String?
+  userId          String?
+  apiKeyId        String?
+  action          String    // project.created | apikey.revoked | notification.sent ...
+  resource        String?   // resource type
+  resourceId      String?   // resource ID
+  // Snapshot
+  before          String?   // JSON
+  after           String?   // JSON
+  // Context
+  ip              String?
+  userAgent       String?
+  status          String    @default("success") // success | failed
+  message         String?
+  createdAt       DateTime  @default(now())
+
+  tenant          Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  apiKey          ApiKey?   @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([userId])
+  @@index([action])
+}
+
+// ============================================================
+// Platform Stats (denormalized for dashboard performance)
+// ============================================================
+
+model DailyStat {
+  id              String    @id @default(cuid())
+  projectId       String
+  date            DateTime
+  channel         String    // push | email | inapp | webpush
+  sent            Int       @default(0)
+  delivered       Int       @default(0)
+  failed          Int       @default(0)
+  read            Int       @default(0)
+  clicked         Int       @default(0)
+  // Realtime
+  messagesSent    Int       @default(0)
+  activeConnections Int     @default(0)
+  peakConnections Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([projectId, date, channel])
+  @@index([projectId, date])
+}
