@@ -1,6 +1,10 @@
 # 🚀 UCP Deployment Guide
 
-This guide covers deploying the UCP platform to **Vercel** (Next.js app) + **Railway/Render** (Realtime Gateway) + **Neon/Vercel Postgres** (database).
+This guide covers deploying the UCP platform using **SQLite everywhere**:
+- **Local dev**: SQLite file (`db/custom.db`)
+- **Production**: Turso (libSQL — SQLite in the cloud, serverless-friendly)
+
+Both modes use the **same Prisma schema** — only the `DATABASE_URL` format differs.
 
 ---
 
@@ -25,41 +29,56 @@ This guide covers deploying the UCP platform to **Vercel** (Next.js app) + **Rai
                               │                   │
                               ▼                   ▼
                        ┌──────────────────────────────────┐
-                       │  Neon / Vercel Postgres (shared) │
-                       │  - Multi-tenant schema           │
-                       │  - Read by both services         │
+                       │       Turso (libSQL/SQLite)       │
+                       │  - Serverless SQLite database     │
+                       │  - Shared by both services        │
+                       │  - Free: 9GB, 1B reads/mo         │
                        └──────────────────────────────────┘
 ```
 
-**Why split?**
-- Vercel doesn't support long-running WebSocket processes (max 300s timeout)
-- Socket.io requires a persistent server → deploy Gateway on Railway/Render (cheap, supports long-running processes)
-- Both services share the same PostgreSQL database (Gateway reads API keys, Next.js reads/writes everything)
+**Why Turso?**
+- SQLite-compatible — same Prisma schema, zero migrations
+- Serverless-friendly (HTTP-based, no connection pooling issues)
+- Free tier: 9GB storage, 500 databases, 1 billion row reads/month
+- Edge replicas (low latency globally)
+- Works perfectly with Vercel serverless functions
 
 ---
 
-## 🗄 Step 1: Provision PostgreSQL Database
+## 🗄 Step 1: Provision Turso Database
 
-### Option A: Neon (Recommended — serverless Postgres, generous free tier)
+### Install Turso CLI
 
-1. Go to https://neon.tech and sign up (free)
-2. Create a new project
-3. Copy the connection string — looks like:
-   ```
-   postgresql://neondb:password@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
-   ```
-4. Save it as `DATABASE_URL` — you'll use it in both Vercel and Railway
+```bash
+# macOS / Linux
+curl -sSfL https://get.tur.so/install.sh | bash
 
-### Option B: Vercel Postgres
+# Verify installation
+turso version
+```
 
-1. In your Vercel dashboard → Storage → Create Database → Postgres
-2. Copy the connection string
+### Sign up and create a database
 
-### Option C: Supabase
+```bash
+# Sign up (free — no credit card needed)
+turso auth login
 
-1. Go to https://supabase.com and create a project
-2. Settings → Database → Connection string → URI
-3. Add `?sslmode=require` if not present
+# Create a database
+turso db create ucp
+
+# Get the connection URL
+turso db show ucp --url
+# → libsql://ucp-<your-username>.turso.io
+
+# Create an auth token
+turso db tokens create ucp
+# → eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...
+
+# Combine into a single URL:
+# libsql://ucp-<your-username>.turso.io?authToken=eyJhbGciOi...
+```
+
+Save this combined URL — you'll use it as `DATABASE_URL` in both Vercel and Railway.
 
 ---
 
@@ -70,9 +89,8 @@ This guide covers deploying the UCP platform to **Vercel** (Next.js app) + **Rai
 1. Go to https://vercel.com/new
 2. Import your GitHub repo: `elmoorx0/ucp-platform`
 3. **Framework Preset**: Next.js (auto-detected)
-4. **Root Directory**: `./` (default)
-5. **Build Command**: `bun run vercel-build` (auto-detected from `vercel.json`)
-6. **Install Command**: `bun install` (auto-detected)
+4. **Build Command**: `bun run vercel-build` (auto-detected from `vercel.json`)
+5. **Install Command**: `bun install` (auto-detected)
 
 ### Environment Variables (CRITICAL — set all of these)
 
@@ -80,26 +98,22 @@ In Vercel → Project → Settings → Environment Variables:
 
 | Name | Value | Environments |
 |------|-------|--------------|
-| `DATABASE_PROVIDER` | `postgresql` | Production, Preview, Development |
-| `DATABASE_URL` | `postgresql://...?sslmode=require&pgbouncer=true&connect_timeout=15` | All |
+| `DATABASE_URL` | `libsql://ucp-xxx.turso.io?authToken=eyJ...` | Production, Preview, Development |
 | `JWT_SECRET` | (run `openssl rand -base64 48`) | All |
 | `API_KEY_HASH_SECRET` | (run `openssl rand -base64 32`) | All |
 | `INTERNAL_API_TOKEN` | (run `openssl rand -base64 32`) | All |
 | `REALTIME_GATEWAY_URL` | `https://your-gateway.up.railway.app` (set in Step 3) | All |
 | `NODE_ENV` | `production` | Production |
 
-> ⚠️ **Important about `DATABASE_URL`**: Add `&pgbouncer=true&connect_timeout=15` to the connection string. This enables PgBouncer connection pooling, which is required for serverless (Vercel) to avoid exhausting DB connections.
-
-### Deploy
+### Deploy & Initialize DB
 
 1. Click **Deploy**
 2. Wait for build to complete (~2 min)
-3. Your app will be live at `https://ucp-platform-xxx.vercel.app`
-4. Run database migration:
+3. Push the schema to Turso (locally, with production `DATABASE_URL`):
    ```bash
-   # Locally, with DATABASE_URL set to your production Postgres
-   DATABASE_PROVIDER=postgresql DATABASE_URL=your-prod-url bun run db:push
+   DATABASE_URL="libsql://ucp-xxx.turso.io?authToken=eyJ..." bun run db:push
    ```
+4. Your app will be live at `https://ucp-platform-xxx.vercel.app`
 5. Seed demo data:
    ```bash
    curl -X POST https://your-app.vercel.app/api/dashboard/seed?force=true
@@ -120,8 +134,7 @@ In Vercel → Project → Settings → Environment Variables:
 
 | Name | Value |
 |------|-------|
-| `DATABASE_PROVIDER` | `postgresql` |
-| `DATABASE_URL` | `postgresql://...?sslmode=require` (same as Vercel, but WITHOUT pgbouncer=true) |
+| `DATABASE_URL` | `libsql://ucp-xxx.turso.io?authToken=eyJ...` (same Turso URL as Vercel) |
 | `API_KEY_HASH_SECRET` | (same value as Vercel) |
 | `INTERNAL_API_TOKEN` | (same value as Vercel) |
 | `JWT_SECRET` | (same value as Vercel) |
@@ -185,8 +198,7 @@ cd mini-services/realtime-gateway
 fly launch --no-deploy
 
 # Set secrets
-fly secrets set DATABASE_PROVIDER=postgresql
-fly secrets set DATABASE_URL="postgresql://..."
+fly secrets set DATABASE_URL="libsql://ucp-xxx.turso.io?authToken=eyJ..."
 fly secrets set API_KEY_HASH_SECRET="..."
 fly secrets set INTERNAL_API_TOKEN="..."
 fly secrets set JWT_SECRET="..."
@@ -223,6 +235,17 @@ Expected:
 curl https://your-gateway.up.railway.app/health
 ```
 
+Expected:
+```json
+{
+  "ok": true,
+  "service": "ucp-realtime-gateway",
+  "dbType": "turso",
+  "socketCount": 0,
+  "uptime": 12.5
+}
+```
+
 ### 3. Seed Demo Data
 
 ```bash
@@ -241,7 +264,7 @@ curl -X POST https://your-app.vercel.app/api/v1/notifications \
     "channel": "inapp",
     "to": ["user-001"],
     "title": "Hello from production!",
-    "body": "Sent via UCP on Vercel"
+    "body": "Sent via UCP on Vercel + Turso"
   }'
 ```
 
@@ -265,7 +288,7 @@ socket.on('inapp:notification', (data) => console.log('Got notif:', data))
 
 ## 🔧 Local Development
 
-For local dev (with hot reload):
+For local dev with hot reload (uses local SQLite file):
 
 ```bash
 # 1. Install dependencies
@@ -273,14 +296,13 @@ bun install
 cd mini-services/realtime-gateway && bun install && cd ../..
 
 # 2. Set up local SQLite database
-echo 'DATABASE_PROVIDER=sqlite
-DATABASE_URL=file:./db/custom.db
+echo 'DATABASE_URL=file:./db/custom.db
 JWT_SECRET=dev-secret-min-32-chars-long-please
 API_KEY_HASH_SECRET=dev-api-key-secret
 INTERNAL_API_TOKEN=dev-internal-token
 REALTIME_GATEWAY_URL=http://localhost:3003' > .env
 
-# 3. Push schema to local DB
+# 3. Push schema to local SQLite DB
 bun run db:push
 
 # 4. Start the Gateway (terminal 1)
@@ -301,9 +323,12 @@ curl -X POST http://localhost:3000/api/dashboard/seed?force=true
 
 ### "Database connection failed" on Vercel
 
-- Make sure `DATABASE_URL` includes `?sslmode=require` (Neon/Supabase require SSL)
-- Make sure `DATABASE_PROVIDER=postgresql` (not `sqlite`)
-- For Vercel Postgres: add `&pgbouncer=true&connect_timeout=15`
+- Make sure `DATABASE_URL` starts with `libsql://` (not `file:`) in production
+- Verify the Turso auth token is correct (regenerate with `turso db tokens create ucp`)
+- Test the connection locally:
+  ```bash
+  DATABASE_URL="libsql://..." bun -e "import('@libsql/client').then(({createClient}) => createClient({url: process.env.DATABASE_URL}).execute('SELECT 1').then(r => console.log('OK', r))).catch(e => console.error(e.message))"
+  ```
 
 ### "Gateway not reachable" in Vercel health check
 
@@ -321,9 +346,16 @@ curl -X POST http://localhost:3000/api/dashboard/seed?force=true
 
 ### Build fails on Vercel
 
-- Check that `DATABASE_PROVIDER` env var is set before build
+- Check that `DATABASE_URL` env var is set before build
 - Verify `prisma generate` runs in `postinstall` (it's in `package.json`)
 - If Prisma binary fails: add `PRISMA_ENGINES_MIRROR=https://registry.npmjs.org` env var
+
+### Turso-specific errors
+
+- **"SQLITE_BUSY"**: Turso handles this automatically with HTTP retries; should not occur
+- **"database is locked"**: Should not happen with Turso (only with local SQLite under heavy concurrent writes)
+- **"authToken required"**: Your `DATABASE_URL` is missing `?authToken=xxx`
+- **Rate limit (429)**: Free tier allows 1B reads/mo — should be plenty. Upgrade if needed.
 
 ### Notifications not delivered
 
@@ -333,25 +365,25 @@ curl -X POST http://localhost:3000/api/dashboard/seed?force=true
 
 ---
 
-## 💰 Cost Estimate (Free Tier)
+## 💰 Cost Estimate
 
 | Service | Free Tier | Paid Plan |
 |---------|-----------|-----------|
 | **Vercel** | Hobby: 100GB bandwidth, unlimited static, 100h serverless | Pro: $20/mo |
-| **Neon** | Free: 0.5GB storage, 1 project | Pro: $19/mo (10GB) |
+| **Turso** | Free: 9GB storage, 500 DBs, 1B reads/mo, 25M writes/mo | Scaler: $29/mo |
 | **Railway** | Trial: $5 credit (~1 month) | Hobby: $5/mo + usage |
 | **Render** | Free (sleeps after 15 min) | Starter: $7/mo |
 
 **Total free tier**: ~$0/mo for low-traffic deployments
-**Production-ready**: ~$25/mo (Vercel Pro + Neon Pro + Railway Hobby)
+**Production-ready**: ~$25/mo (Vercel Pro + Turso Scaler + Railway Hobby)
 
 ---
 
 ## 📚 Additional Resources
 
 - [Vercel Documentation](https://vercel.com/docs)
-- [Prisma on Vercel](https://www.prisma.io/docs/guides/deploying-to-vercel)
-- [Neon Documentation](https://neon.tech/docs)
+- [Prisma + Turso Guide](https://www.prisma.io/docs/concepts/database-connectors/turso)
+- [Turso Documentation](https://docs.turso.tech)
 - [Railway Documentation](https://docs.railway.app)
 - [Socket.io Documentation](https://socket.io/docs/v4/)
 

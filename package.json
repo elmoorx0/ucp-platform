@@ -16,8 +16,6 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:reset": "prisma migrate reset",
     "db:studio": "prisma studio",
-    "db:use-sqlite": "cp prisma/schema.sqlite.prisma prisma/schema.prisma && echo 'Switched to SQLite. Run: bun run db:push'",
-    "db:use-postgres": "git checkout prisma/schema.prisma && echo 'Switched to PostgreSQL. Run: bun run db:push'",
     "gateway": "cd mini-services/realtime-gateway && bun run dev",
     "gateway:start": "cd mini-services/realtime-gateway && bun run start",
     "seed": "curl -X POST http://localhost:3000/api/dashboard/seed?force=true"
@@ -27,7 +25,9 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@hookform/resolvers": "^5.1.1",
+    "@libsql/client": "^0.14.0",
     "@mdxeditor/editor": "^3.39.1",
+    "@prisma/adapter-libsql": "^6.11.1",
     "@prisma/client": "^6.11.1",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.14",

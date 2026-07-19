@@ -4,9 +4,7 @@
 # ============================================================
 
 [deploy]
-# The Gateway listens on $PORT (Railway auto-injects this).
-# Our index.ts uses `process.env.PORT || 3003`, so we just need to set PORT.
-# Railway does this automatically — no config needed here.
+# Railway auto-injects PORT — our index.ts uses process.env.PORT || 3003
 
 [build]
 dockerfile = "Dockerfile"
@@ -19,8 +17,7 @@ path = "/health"
 timeout_seconds = 5
 
 # Environment variables that MUST be set in the Railway dashboard:
-# - DATABASE_PROVIDER=postgresql
-# - DATABASE_URL=<your-postgres-connection-string>
+# - DATABASE_URL=libsql://your-db.turso.io?authToken=xxx  (Turso SQLite)
 # - API_KEY_HASH_SECRET=<same-as-vercel>
 # - INTERNAL_API_TOKEN=<same-as-vercel>
 # - JWT_SECRET=<same-as-vercel>

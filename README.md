@@ -6,9 +6,9 @@
 [![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org/)
 [![Prisma](https://img.shields.io/badge/Prisma-6-blue.svg)](https://www.prisma.io/)
 [![Socket.io](https://img.shields.io/badge/Socket.io-4-black.svg)](https://socket.io/)
+[![SQLite](https://img.shields.io/badge/SQLite-Turso-blue.svg)](https://turso.tech/)
 [![Vercel Ready](https://img.shields.io/badge/Vercel-Ready-black.svg)](https://vercel.com/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Live Demo](https://img.shields.io/badge/Live-Demo-brightgreen.svg)](https://github.com/elmoorx0/ucp-platform)
 
 ---
 
@@ -17,7 +17,7 @@
 - [نظرة عامة](#نظرة-عامة)
 - [المميزات](#المميزات)
 - [البنية التقنية](#البنية-التقنية)
-- [النشر السريع (Vercel + Railway)](#النشر-السريع-vercel--railway)
+- [النشر السريع (Vercel + Railway + Turso)](#النشر-السريع-vercel--railway--turso)
 - [الخدمات](#الخدمات)
 - [البدء السريع (Local Dev)](#البدء-السريع-local-dev)
 - [REST API](#rest-api)
@@ -65,7 +65,8 @@ Notification  Realtime  Event Bus
 - ✅ **قابلية توسع** — من مشروع صغير إلى ملايين المستخدمين
 - ✅ **أمان** — JWT + API Keys مع scopes + bcrypt-style hashing (scrypt)
 - ✅ **Audit Log** — تتبع كل عملية في النظام
-- ✅ **Vercel-Ready** — متوافق تماماً مع Vercel + Railway + Neon Postgres
+- ✅ **SQLite Everywhere** — SQLite محلياً، Turso (libSQL) للإنتاج — نفس الـ schema
+- ✅ **Vercel-Ready** — متوافق تماماً مع Vercel + Railway + Turso
 
 ---
 
@@ -74,9 +75,8 @@ Notification  Realtime  Event Bus
 | المكون | التقنية | الاستضافة المقترحة |
 |--------|---------|---------------------|
 | **Frontend & API** | Next.js 16 (App Router) + TypeScript 5 | Vercel |
-| **Database** | Prisma ORM + PostgreSQL | Neon / Vercel Postgres |
+| **Database** | Prisma ORM + SQLite / Turso (libSQL) | Turso (مجاني) |
 | **Realtime Gateway** | Socket.io + Bun (mini-service منفصل) | Railway / Render / Fly.io |
-| **Caching (اختياري)** | Redis (للـ multi-instance) | Upstash / Redis Cloud |
 | **UI** | Tailwind CSS 4 + shadcn/ui + Recharts | (مدمج في Vercel) |
 | **Auth** | JWT (Dashboard) + API Keys (Clients) | (مدمج) |
 | **Process Runtime** | Bun (Gateway) + Node.js (Next.js) | — |
@@ -85,19 +85,29 @@ Notification  Realtime  Event Bus
 
 ---
 
-## 🚀 النشر السريع (Vercel + Railway)
+## 🚀 النشر السريع (Vercel + Railway + Turso)
 
-### 1. قاعدة البيانات (Neon Postgres - مجاني)
-1. اذهب إلى https://neon.tech وأنشئ مشروع
-2. انسخ الـ connection string
+### 1. قاعدة البيانات (Turso - SQLite سحابي مجاني)
+```bash
+# تثبيت Turso CLI
+curl -sSfL https://get.tur.so/install.sh | bash
+turso auth login
+
+# إنشاء قاعدة بيانات
+turso db create ucp
+turso db show ucp --url           # libsql://ucp-xxx.turso.io
+turso db tokens create ucp        # eyJhbGciOi...
+
+# الجمع في URL واحد:
+# libsql://ucp-xxx.turso.io?authToken=eyJhbGciOi...
+```
 
 ### 2. تطبيق Next.js (Vercel)
 1. اذهب إلى https://vercel.com/new
 2. استورد الـ repo: `elmoorx0/ucp-platform`
 3. أضف Environment Variables:
    ```
-   DATABASE_PROVIDER=postgresql
-   DATABASE_URL=postgresql://...?sslmode=require&pgbouncer=true&connect_timeout=15
+   DATABASE_URL=libsql://ucp-xxx.turso.io?authToken=eyJ...
    JWT_SECRET=(openssl rand -base64 48)
    API_KEY_HASH_SECRET=(openssl rand -base64 32)
    INTERNAL_API_TOKEN=(openssl rand -base64 32)
@@ -108,14 +118,14 @@ Notification  Realtime  Event Bus
 ### 3. Realtime Gateway (Railway)
 1. اذهب إلى https://railway.app → New Project → Deploy from GitHub
 2. Root Directory: `mini-services/realtime-gateway`
-3. أضف نفس Environment Variables (بدون `pgbouncer=true`)
+3. أضف نفس Environment Variables (DATABASE_URL هو نفسه Turso URL)
 4. Generate Domain → انسخ URL
 5. عُد إلى Vercel وحدّث `REALTIME_GATEWAY_URL`
 
 ### 4. تهيئة قاعدة البيانات
 ```bash
-# محلياً مع DATABASE_URL الخاص بالإنتاج
-DATABASE_PROVIDER=postgresql DATABASE_URL=your-prod-url bun run db:push
+# محلياً مع DATABASE_URL الخاص بـ Turso
+DATABASE_URL="libsql://ucp-xxx.turso.io?authToken=eyJ..." bun run db:push
 
 # ثم Seed
 curl -X POST https://your-app.vercel.app/api/dashboard/seed?force=true
@@ -139,7 +149,7 @@ curl -X POST https://your-app.vercel.app/api/dashboard/seed?force=true
 
 ### 3. Realtime Gateway
 Socket.io server منفصل للـ WebSocket connections، مع Presence tracking و Push HTTP API داخلي.
-**يستخدم PostgreSQL في الإنتاج و SQLite في التطوير المحلي** (نفس الـ codebase).
+**يستخدم Turso (libSQL) في الإنتاج و SQLite محلياً في التطوير** (نفس الـ codebase، نفس الـ schema).
 
 ### 4. Event Bus
 نشر واشتراك الأحداث بين الخدمات + استمرارها في DB للـ audit و replay.
@@ -293,7 +303,7 @@ POST /api/v1/realtime
 
 ## ⚡ Realtime Gateway
 
-الـ Gateway يعمل كـ mini-service منفصل باستخدام Bun + Socket.io. يدعم **كلاً من SQLite (dev) و PostgreSQL (production)** عبر نفس الـ codebase.
+الـ Gateway يعمل كـ mini-service منفصل باستخدام Bun + Socket.io. يدعم **كلاً من SQLite المحلي (للتطوير) و Turso libSQL (للإنتاج)** عبر نفس الـ codebase ونفس الـ Prisma schema.
 
 ### الاتصال من العميل
 
@@ -421,12 +431,26 @@ Dashboard شامل على `/` يحتوي على:
 
 راجع **[DEPLOYMENT.md](DEPLOYMENT.md)** للحصول على دليل كامل خطوة بخطوة يشمل:
 
-- ✅ إنشاء قاعدة بيانات PostgreSQL على Neon
+- ✅ إنشاء قاعدة بيانات Turso (SQLite سحابي مجاني)
 - ✅ نشر Next.js على Vercel مع كل Environment Variables
 - ✅ نشر Realtime Gateway على Railway / Render / Fly.io
 - ✅ Dockerfile جاهز + railway.toml + render.yaml
 - ✅ التحقق من النشر + Troubleshooting
 - ✅ تقدير التكاليف (Free tier: $0/mo)
+
+### لماذا SQLite + Turso؟
+
+| الميزة | SQLite (محلي) | Turso (إنتاج) |
+|--------|---------------|----------------|
+| **Schema** | نفس Prisma schema | نفس Prisma schema |
+| **URL format** | `file:./db/custom.db` | `libsql://xxx.turso.io?authToken=...` |
+| **Connection** | Local file | HTTP (serverless-friendly) |
+| **التكلفة** | مجاني | مجاني (9GB, 1B reads/mo) |
+| **Serverless** | ❌ لا يعمل على Vercel | ✅ يدعم Vercel بـ كامل |
+| **Edge replicas** | ❌ | ✅ (low latency) |
+| **Multi-region** | ❌ | ✅ |
+
+> **الخلاصة**: نفس الـ codebase، نفس الـ schema — فقط غيّر `DATABASE_URL` من `file:` إلى `libsql://` للإنتاج.
 
 ### الأهداف المدعومة
 
@@ -434,7 +458,7 @@ Dashboard شامل على `/` يحتوي على:
 |--------|------------------|
 | **Next.js App** | Vercel (موصى به)، Netlify، Self-hosted (Docker) |
 | **Realtime Gateway** | Railway، Render، Fly.io، DigitalOcean، Self-hosted (Docker) |
-| **Database** | Neon، Vercel Postgres، Supabase، Railway Postgres، Self-hosted |
+| **Database** | SQLite (محلي)، Turso (إنتاج)، أي libSQL-compatible |
 
 ### متغيرات البيئة المطلوبة للإنتاج
 
@@ -474,13 +498,14 @@ ucp-platform/
 │       ├── services/            # Business logic
 │       ├── types/               # TypeScript types
 │       ├── crypto.ts            # JWT + API Key + password hashing
+│       ├── db.ts                # Prisma client (SQLite + Turso)
 │       ├── gateway-client.ts    # HTTP client للـ Gateway
 │       └── dashboard-api.ts     # API client للـ Dashboard
 ├── prisma/
-│   └── schema.prisma            # Database schema (multi-tenant, SQLite+PostgreSQL)
+│   └── schema.prisma            # Database schema (SQLite/Turso — same)
 ├── mini-services/
 │   └── realtime-gateway/        # Socket.io gateway (Bun)
-│       ├── index.ts             # Main entry (supports SQLite + PostgreSQL)
+│       ├── index.ts             # Main entry (SQLite + Turso via libSQL)
 │       ├── Dockerfile           # For Railway/Render/Fly.io
 │       ├── railway.toml         # Railway config
 │       ├── render.yaml          # Render blueprint
@@ -519,9 +544,10 @@ MIT License — راجع ملف [LICENSE](LICENSE) للتفاصيل.
 - [shadcn/ui](https://ui.shadcn.com/)
 - [Bun](https://bun.sh/)
 - [Vercel](https://vercel.com/)
-- [Neon](https://neon.tech/)
+- [Turso](https://turso.tech/) — SQLite in the cloud
 - [Railway](https://railway.app/)
 
 ---
 
-**صُنع بعناية كمنصة CPaaS جاهزة للإنتاج على Vercel** 🚀
+**صُنع بعناية كمنصة CPaaS جاهزة للإنتاج على Vercel + Turso** 🚀
+

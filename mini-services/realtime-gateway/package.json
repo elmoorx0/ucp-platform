@@ -3,17 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "UCP Realtime Gateway - Socket.io service with PostgreSQL/SQLite support",
+  "description": "UCP Realtime Gateway - Socket.io service (SQLite/Turso compatible)",
   "scripts": {
     "dev": "bun --hot index.ts",
     "start": "bun index.ts"
   },
   "dependencies": {
-    "pg": "^8.13.0",
+    "@libsql/client": "^0.14.0",
     "socket.io": "^4.7.5"
   },
   "devDependencies": {
-    "@types/pg": "^8.11.10",
+    "@types/bun": "^1.2.0",
     "bun-types": "^1.3.4",
     "typescript": "^5"
   }

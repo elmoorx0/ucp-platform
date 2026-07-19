@@ -2,13 +2,16 @@
 // Universal Communication Platform (UCP) - Prisma Schema
 // Production-grade multi-tenant schema for CPaaS platform
 //
-// DATABASE_PROVIDER:
-//   - This schema uses "postgresql" by default (production-ready for Vercel).
-//   - For local SQLite development, run: `bun run db:use-sqlite`
-//     (this swaps to prisma/schema.sqlite.prisma temporarily)
+// Database: SQLite (local file) or Turso (libSQL — SQLite in the cloud)
 //
-// For Vercel/Neon/Railway: keep this file as-is.
-// For local dev:                           run `bun run db:use-sqlite`
+// For local dev:
+//   DATABASE_URL="file:./db/custom.db"
+//
+// For Vercel/production (Turso — serverless SQLite):
+//   DATABASE_URL="libsql://your-db.turso.io?authToken=your-token"
+//   (set up a free Turso account at https://turso.tech)
+//
+// Both modes use the SAME Prisma schema — only the URL format differs.
 // ============================================================
 
 generator client {
@@ -16,7 +19,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 

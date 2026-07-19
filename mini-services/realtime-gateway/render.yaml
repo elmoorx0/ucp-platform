@@ -15,10 +15,8 @@ services:
     envVars:
       - key: PORT
         value: 3003
-      - key: DATABASE_PROVIDER
-        value: postgresql
       - key: DATABASE_URL
-        sync: false  # set manually — your Postgres connection string
+        sync: false  # set manually — your Turso libSQL URL (libsql://...?authToken=...)
       - key: API_KEY_HASH_SECRET
         sync: false  # set manually — must match Vercel
       - key: INTERNAL_API_TOKEN
