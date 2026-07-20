@@ -122,11 +122,12 @@ export function signPayload(payload: string): string {
 
 /**
  * Verify a webhook signature (for client SDK use).
+ * Pass the same secret used to sign the payload (INTERNAL_API_TOKEN).
  */
 export function verifySignature(payload: string, signature: string, secret?: string): boolean {
-  const expected = signPayload(payload)
-  const actualSecret = secret || process.env.INTERNAL_API_TOKEN
-  if (!actualSecret) return false
+  const actualSecret = secret || process.env.INTERNAL_API_TOKEN || 'ucp-internal-dev-token-change-me'
+  // Compute expected signature using the provided secret
+  const expected = 'sha256=' + createHmac('sha256', actualSecret).update(payload).digest('hex')
   // Constant-time comparison
   const expectedBuf = Buffer.from(expected)
   const actualBuf = Buffer.from(signature)

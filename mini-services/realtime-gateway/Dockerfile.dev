@@ -1,0 +1,20 @@
+# ============================================================
+# UCP Realtime Gateway — Development Dockerfile
+# Used by docker-compose.yml for local development
+# ============================================================
+
+FROM oven/bun:1.1
+
+WORKDIR /app
+
+# Copy package files first
+COPY package.json bun.lock* ./
+
+# Install dependencies
+RUN bun install
+
+# Source code is mounted as a volume
+EXPOSE 3003
+
+# Default command (overridden by docker-compose)
+CMD ["bun", "run", "dev"]

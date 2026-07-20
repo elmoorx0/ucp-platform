@@ -1,0 +1,21 @@
+# ============================================================
+# UCP Next.js — Development Dockerfile
+# Used by docker-compose.yml for local development
+# ============================================================
+
+FROM oven/bun:1.1
+
+WORKDIR /app
+
+# Copy package files first for better layer caching
+COPY package.json bun.lock* ./
+
+# Install dependencies
+RUN bun install
+
+# Source code is mounted as a volume, so we don't COPY it here
+# Expose port
+EXPOSE 3000
+
+# Default command (overridden by docker-compose)
+CMD ["bun", "run", "dev"]
