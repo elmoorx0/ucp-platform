@@ -39,7 +39,8 @@ export interface RetryableTarget {
  */
 export function getNextRetryAt(attempts: number): Date | null {
   if (attempts >= MAX_ATTEMPTS) return null
-  const delaySec = RETRY_DELAYS_SEC[attempts] || 3600
+  // Use nullish coalescing (not ||) because RETRY_DELAYS_SEC[0] = 0 is a valid delay
+  const delaySec = RETRY_DELAYS_SEC[attempts] ?? 3600
   return new Date(Date.now() + delaySec * 1000)
 }
 

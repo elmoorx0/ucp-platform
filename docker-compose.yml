@@ -1,0 +1,76 @@
+# ============================================================
+# UCP — Docker Compose for local development
+# ============================================================
+# Starts:
+#   1. Next.js app (port 3000) — with hot reload
+#   2. Realtime Gateway (port 3003) — with hot reload
+#   3. (Optional) Redis for multi-instance testing
+#
+# Usage:
+#   docker compose up                  # Start everything
+#   docker compose up -d               # Start in background
+#   docker compose logs -f app         # Tail app logs
+#   docker compose down                # Stop everything
+#   docker compose down -v             # Stop + remove volumes
+#
+# First run: visit http://localhost:3000 and click "Seed demo data"
+# ============================================================
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+      - ./db:/app/db
+    environment:
+      - DATABASE_URL=file:./db/custom.db
+      - JWT_SECRET=dev-secret-min-32-chars-long-please
+      - API_KEY_HASH_SECRET=dev-api-key-secret
+      - INTERNAL_API_TOKEN=dev-internal-token
+      - REALTIME_GATEWAY_URL=http://gateway:3003
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+      - PORT=3000
+    depends_on:
+      - gateway
+    command: bun run dev
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: ./mini-services/realtime-gateway
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3003:3003"
+    volumes:
+      - ./mini-services/realtime-gateway:/app
+      - /app/node_modules
+      - ./db:/app/db
+    environment:
+      - DATABASE_URL=file:./db/custom.db
+      - API_KEY_HASH_SECRET=dev-api-key-secret
+      - INTERNAL_API_TOKEN=dev-internal-token
+      - JWT_SECRET=dev-secret-min-32-chars-long-please
+      - NODE_ENV=development
+      - PORT=3003
+    command: bun run dev
+    restart: unless-stopped
+
+  # Optional: Redis for testing multi-instance Gateway setups
+  # Uncomment to enable
+  # redis:
+  #   image: redis:7-alpine
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis-data:/data
+  #   restart: unless-stopped
+
+# volumes:
+#   redis-data:
