@@ -5,15 +5,14 @@ import { api } from '@/lib/dashboard-api'
 import type { NotificationItem } from '@/lib/dashboard-api'
 import { Project } from '@/app/page'
 import { Card, CardContent } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog'
-import { Bell, Loader2, XCircle, CheckCircle2, Clock, AlertCircle } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
+import { Bell, Loader2, XCircle, CheckCircle2, Clock, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatDistanceToNow } from 'date-fns'
+import { arSA } from 'date-fns/locale'
 
 const STATUS_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   sent: CheckCircle2,
@@ -37,7 +36,26 @@ const STATUS_COLOR: Record<string, string> = {
   cancelled: 'text-slate-500',
 }
 
-const CHANNEL_COLOR: Record<string, string> = {
+const STATUS_LABELS: Record<string, string> = {
+  sent: 'تم الإرسال',
+  delivered: 'تم التسليم',
+  failed: 'فشل',
+  pending: 'قيد الانتظار',
+  partial: 'جزئي',
+  sending: 'جاري الإرسال',
+  queued: 'في الطابور',
+  cancelled: 'ملغي',
+}
+
+const CHANNEL_LABELS: Record<string, string> = {
+  push: 'إشعار فوري',
+  email: 'بريد',
+  inapp: 'داخل التطبيق',
+  webpush: 'ويب فوري',
+  multi: 'متعدد',
+}
+
+const CHANNEL_COLORS: Record<string, string> = {
   push: 'bg-blue-100 text-blue-700',
   email: 'bg-purple-100 text-purple-700',
   inapp: 'bg-emerald-100 text-emerald-700',
@@ -83,7 +101,7 @@ export function NotificationsView({ project }: { project: Project }) {
   const handleCancel = async (id: string) => {
     try {
       await api.cancelNotification(project.id, id)
-      toast.success('Notification cancelled')
+      toast.success('تم إلغاء الإشعار')
       load()
       if (selected?.id === id) setSelected(null)
     } catch (e) {
@@ -92,21 +110,21 @@ export function NotificationsView({ project }: { project: Project }) {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Notifications</h1>
-          <p className="text-sm text-slate-500">{total} total · showing {items.length}</p>
+          <h1 className="text-lg sm:text-xl font-bold text-slate-900">الإشعارات</h1>
+          <p className="text-sm text-slate-500">{total} إجمالي · عرض {items.length}</p>
         </div>
         <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1) }}>
-          <SelectTrigger className="w-40 text-xs"><SelectValue placeholder="Filter" /></SelectTrigger>
+          <SelectTrigger className="w-full sm:w-40 text-xs"><SelectValue placeholder="تصفية" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="sent">Sent</SelectItem>
-            <SelectItem value="failed">Failed</SelectItem>
-            <SelectItem value="partial">Partial</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
+            <SelectItem value="all">كل الحالات</SelectItem>
+            <SelectItem value="sent">تم الإرسال</SelectItem>
+            <SelectItem value="failed">فشل</SelectItem>
+            <SelectItem value="pending">قيد الانتظار</SelectItem>
+            <SelectItem value="partial">جزئي</SelectItem>
+            <SelectItem value="cancelled">ملغي</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -114,41 +132,42 @@ export function NotificationsView({ project }: { project: Project }) {
       <Card>
         <CardContent className="p-0">
           {loading ? (
-            <div className="p-8 text-center text-sm text-slate-400"><Loader2 className="w-4 h-4 animate-spin inline mr-2" />Loading…</div>
+            <div className="p-8 text-center text-sm text-slate-400"><Loader2 className="w-4 h-4 animate-spin inline ml-2" />جاري التحميل…</div>
           ) : items.length === 0 ? (
-            <div className="p-12 text-center">
-              <Bell className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-              <div className="text-sm text-slate-500 mb-1">No notifications yet</div>
-              <div className="text-xs text-slate-400">Send one from the "Send" tab</div>
+            <div className="p-8 sm:p-12 text-center">
+              <Bell className="w-12 h-12 text-slate-200 mx-auto mb-3" />
+              <div className="text-sm text-slate-500 mb-1">لا توجد إشعارات بعد</div>
+              <div className="text-xs text-slate-400">أرسل واحداً من تبويب «إرسال»</div>
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
               {items.map((n) => {
                 const Icon = STATUS_ICON[n.status] || Clock
+                const channelColor = CHANNEL_COLORS[n.channel] || 'bg-slate-100'
                 return (
                   <div
                     key={n.id}
-                    className="p-4 flex items-center gap-3 hover:bg-slate-50 cursor-pointer"
+                    className="p-3 sm:p-4 flex items-center gap-3 hover:bg-slate-50 cursor-pointer"
                     onClick={() => loadDetail(n)}
                   >
-                    <div className={`w-9 h-9 rounded-md flex items-center justify-center ${CHANNEL_COLOR[n.channel] || 'bg-slate-100'}`}>
-                      <Bell className="w-4 h-4" />
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${channelColor}`}>
+                      <Bell className="w-5 h-5" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <div className="font-medium text-sm text-slate-900 truncate">{n.title}</div>
-                        <Badge variant="outline" className="text-[10px] capitalize">{n.channel}</Badge>
+                        <Badge variant="outline" className="text-[10px] flex-shrink-0">{CHANNEL_LABELS[n.channel] || n.channel}</Badge>
                       </div>
                       <div className="text-xs text-slate-500 truncate">{n.body}</div>
                       <div className="text-[10px] text-slate-400 mt-0.5">
-                        {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
+                        {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true, locale: arSA })}
                         {' · '}
                         <span className={STATUS_COLOR[n.status]}>
-                          {n.deliveredCount} delivered / {n.failedCount} failed / {n.totalTargets} total
+                          {n.deliveredCount} تم تسليمها / {n.failedCount} فشل / {n.totalTargets} إجمالي
                         </span>
                       </div>
                     </div>
-                    <Icon className={`w-4 h-4 ${STATUS_COLOR[n.status]} ${n.status === 'sending' ? 'animate-spin' : ''}`} />
+                    <Icon className={`w-5 h-5 flex-shrink-0 ${STATUS_COLOR[n.status]} ${n.status === 'sending' ? 'animate-spin' : ''}`} />
                   </div>
                 )
               })}
@@ -159,39 +178,39 @@ export function NotificationsView({ project }: { project: Project }) {
 
       {/* Detail dialog */}
       <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-base">{selected?.title}</DialogTitle>
             <DialogDescription className="text-xs">
-              {selected && formatDistanceToNow(new Date(selected.createdAt), { addSuffix: true })}
+              {selected && formatDistanceToNow(new Date(selected.createdAt), { addSuffix: true, locale: arSA })}
               {' · '}
-              <Badge variant="outline" className="text-[10px] capitalize">{selected?.channel}</Badge>
+              <Badge variant="outline" className="text-[10px]">{CHANNEL_LABELS[selected?.channel || ''] || selected?.channel}</Badge>
             </DialogDescription>
           </DialogHeader>
           {selected && (
             <div className="space-y-3">
-              <div className="p-3 rounded-md bg-slate-50 text-sm text-slate-700">{selected.body}</div>
+              <div className="p-3 rounded-lg bg-slate-50 text-sm text-slate-700">{selected.body}</div>
 
               <div className="grid grid-cols-4 gap-2">
-                <Stat label="Total" value={selected.totalTargets} />
-                <Stat label="Delivered" value={selected.deliveredCount} color="text-emerald-600" />
-                <Stat label="Failed" value={selected.failedCount} color="text-red-600" />
-                <Stat label="Pending" value={selected.pendingCount} color="text-amber-600" />
+                <Stat label="الإجمالي" value={selected.totalTargets} />
+                <Stat label="تم التسليم" value={selected.deliveredCount} color="text-emerald-600" />
+                <Stat label="فشل" value={selected.failedCount} color="text-red-600" />
+                <Stat label="معلق" value={selected.pendingCount} color="text-amber-600" />
               </div>
 
               {detail?.targets && detail.targets.length > 0 && (
                 <div>
-                  <div className="text-xs font-medium text-slate-700 mb-1">Delivery details ({detail.targets.length})</div>
-                  <div className="max-h-64 overflow-y-auto border rounded-md divide-y divide-slate-100">
+                  <div className="text-xs font-medium text-slate-700 mb-1">تفاصيل التسليم ({detail.targets.length})</div>
+                  <div className="max-h-56 overflow-y-auto border rounded-lg divide-y divide-slate-100">
                     {detail.targets.map((t) => (
                       <div key={t.id} className="p-2 flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-[10px]">{t.channel}</Badge>
-                          <span className="font-mono text-slate-500">{t.endUserId?.slice(-12) || t.deviceId?.slice(-12) || '—'}</span>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Badge variant="outline" className="text-[10px] flex-shrink-0">{CHANNEL_LABELS[t.channel] || t.channel}</Badge>
+                          <span className="font-mono text-slate-500 truncate">{t.endUserId?.slice(-12) || t.deviceId?.slice(-12) || '—'}</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="capitalize text-slate-600">{t.status}</span>
-                          {t.error && <span className="text-red-600">{t.error}</span>}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="text-slate-600">{STATUS_LABELS[t.status] || t.status}</span>
+                          {t.error && <span className="text-red-600 text-[10px]">{t.error}</span>}
                         </div>
                       </div>
                     ))}
@@ -201,7 +220,7 @@ export function NotificationsView({ project }: { project: Project }) {
 
               {['pending', 'queued', 'sending'].includes(selected.status) && (
                 <Button variant="destructive" onClick={() => handleCancel(selected.id)}>
-                  Cancel notification
+                  إلغاء الإشعار
                 </Button>
               )}
             </div>
@@ -212,10 +231,16 @@ export function NotificationsView({ project }: { project: Project }) {
       {/* Pagination */}
       {total > 20 && (
         <div className="flex items-center justify-between">
-          <div className="text-xs text-slate-500">Page {page} of {Math.ceil(total / 20)}</div>
+          <div className="text-xs text-slate-500">صفحة {page} من {Math.ceil(total / 20)}</div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>Previous</Button>
-            <Button variant="outline" size="sm" disabled={page * 20 >= total} onClick={() => setPage(page + 1)}>Next</Button>
+            <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>
+              <ChevronRight className="w-3.5 h-3.5 ml-1" />
+              السابق
+            </Button>
+            <Button variant="outline" size="sm" disabled={page * 20 >= total} onClick={() => setPage(page + 1)}>
+              التالي
+              <ChevronLeft className="w-3.5 h-3.5 mr-1" />
+            </Button>
           </div>
         </div>
       )}
@@ -225,9 +250,9 @@ export function NotificationsView({ project }: { project: Project }) {
 
 function Stat({ label, value, color }: { label: string; value: number; color?: string }) {
   return (
-    <div className="p-2 rounded-md bg-slate-50 text-center">
-      <div className={`text-lg font-semibold ${color || 'text-slate-900'}`}>{value}</div>
-      <div className="text-[10px] text-slate-500 uppercase tracking-wide">{label}</div>
+    <div className="p-2 rounded-lg bg-slate-50 text-center">
+      <div className={`text-lg font-bold ${color || 'text-slate-900'}`}>{value}</div>
+      <div className="text-[10px] text-slate-500">{label}</div>
     </div>
   )
 }

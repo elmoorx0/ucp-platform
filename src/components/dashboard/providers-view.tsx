@@ -9,35 +9,36 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog'
-import { Settings, Loader2, CheckCircle2, AlertCircle, Plus } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Settings, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
+
+const PROVIDER_LABELS: Record<string, string> = {
+  fcm: 'Firebase Cloud Messaging',
+  email_smtp: 'البريد الإلكتروني (SMTP)',
+  webpush: 'ويب فوري (VAPID)',
+  inapp: 'داخل التطبيق',
+  onesignal: 'OneSignal',
+  twilio: 'Twilio SMS',
+}
 
 const PROVIDER_FIELDS: Record<string, Array<{ key: string; label: string; type?: string; placeholder?: string }>> = {
   fcm: [
-    { key: 'projectId', label: 'Firebase Project ID', placeholder: 'my-app-12345' },
-    { key: 'clientEmail', label: 'Client Email', placeholder: 'firebase-adminsdk@my-app.iam.gserviceaccount.com' },
-    { key: 'privateKey', label: 'Private Key', placeholder: '-----BEGIN PRIVATE KEY-----\n...' },
+    { key: 'projectId', label: 'معرّف مشروع Firebase', placeholder: 'my-app-12345' },
+    { key: 'clientEmail', label: 'البريد الإلكتروني للعميل', placeholder: 'firebase-adminsdk@...' },
+    { key: 'privateKey', label: 'المفتاح الخاص', placeholder: '-----BEGIN PRIVATE KEY-----\n...' },
   ],
   email_smtp: [
-    { key: 'host', label: 'SMTP Host', placeholder: 'smtp.gmail.com' },
-    { key: 'port', label: 'Port', placeholder: '587', type: 'number' },
-    { key: 'username', label: 'Username', placeholder: 'user@example.com' },
-    { key: 'password', label: 'Password', placeholder: '••••••••', type: 'password' },
-    { key: 'secure', label: 'Use TLS', placeholder: 'true', type: 'checkbox' },
+    { key: 'host', label: 'خادم SMTP', placeholder: 'smtp.gmail.com' },
+    { key: 'port', label: 'المنفذ', placeholder: '587', type: 'number' },
+    { key: 'username', label: 'اسم المستخدم', placeholder: 'user@example.com' },
+    { key: 'password', label: 'كلمة المرور', placeholder: '••••••••', type: 'password' },
   ],
   webpush: [
-    { key: 'vapidSubject', label: 'VAPID Subject', placeholder: 'mailto:admin@example.com' },
-    { key: 'vapidPublicKey', label: 'Public Key', placeholder: 'BOPh…' },
-    { key: 'vapidPrivateKey', label: 'Private Key', placeholder: '—' },
+    { key: 'vapidSubject', label: 'موضوع VAPID', placeholder: 'mailto:admin@example.com' },
+    { key: 'vapidPublicKey', label: 'المفتاح العام', placeholder: 'BOPh…' },
+    { key: 'vapidPrivateKey', label: 'المفتاح الخاص', placeholder: '—' },
   ],
-  inapp: [],
-}
-
-const PROVIDER_CONFIG: Record<string, Array<{ key: string; label: string; placeholder?: string }>> = {
-  email_smtp: [{ key: 'fromAddress', label: 'From Address', placeholder: 'no-reply@example.com' }],
-  fcm: [],
-  webpush: [],
   inapp: [],
 }
 
@@ -77,11 +78,10 @@ export function ProvidersView({ project }: { project: Project }) {
     if (!editing) return
     setSaving(true)
     try {
-      // Convert form values to proper types
       const credentials: Record<string, unknown> = {}
       for (const [k, v] of Object.entries(formValues)) {
         if (v) {
-          if (k === 'port' || k === 'secure') credentials[k] = k === 'secure' ? v === 'true' : Number(v)
+          if (k === 'port') credentials[k] = Number(v)
           else credentials[k] = v
         }
       }
@@ -90,7 +90,7 @@ export function ProvidersView({ project }: { project: Project }) {
         if (v) config[k] = v
       }
       await api.configureProvider(project.id, editing, credentials, config, true)
-      toast.success(`Provider "${editing}" configured`)
+      toast.success(`تم تكوين "${PROVIDER_LABELS[editing] || editing}"`)
       setEditing(null)
       load()
     } catch (e) {
@@ -100,78 +100,76 @@ export function ProvidersView({ project }: { project: Project }) {
     }
   }
 
+  if (loading) {
+    return <div className="p-6 text-sm text-slate-400"><Loader2 className="w-4 h-4 animate-spin inline ml-2" />جاري التحميل…</div>
+  }
+
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Providers</h1>
-        <p className="text-sm text-slate-500">Configure the channels you want to enable. Swap providers anytime without touching app code.</p>
+        <h1 className="text-lg sm:text-xl font-bold text-slate-900">المزودون</h1>
+        <p className="text-sm text-slate-500">كوّن القنوات التي تريد تفعيلها. بدّل المزودين دون تغيير كود تطبيقك.</p>
       </div>
 
-      {loading ? (
-        <div className="p-8 text-center text-sm text-slate-400"><Loader2 className="w-4 h-4 animate-spin inline mr-2" />Loading…</div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {providers.map((p) => (
-            <Card key={p.name}>
-              <CardContent className="p-5">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-md flex items-center justify-center ${p.configured ? 'bg-emerald-100' : 'bg-slate-100'}`}>
-                      <Settings className={`w-5 h-5 ${p.configured ? 'text-emerald-600' : 'text-slate-400'}`} />
-                    </div>
-                    <div>
-                      <div className="font-medium text-sm text-slate-900">{p.displayName}</div>
-                      <div className="text-xs text-slate-500 font-mono">{p.name}</div>
-                    </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {providers.map((p) => (
+          <Card key={p.name}>
+            <CardContent className="p-5">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${p.configured ? 'bg-emerald-100' : 'bg-slate-100'}`}>
+                    <Settings className={`w-5 h-5 ${p.configured ? 'text-emerald-600' : 'text-slate-400'}`} />
                   </div>
-                  <div className="flex items-center gap-2">
-                    {p.configured && p.health && (
-                      p.health.healthy ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <AlertCircle className="w-4 h-4 text-amber-500" />
-                    )}
-                    <Switch checked={p.enabled} disabled={!p.configured} />
+                  <div>
+                    <div className="font-medium text-sm text-slate-900">{PROVIDER_LABELS[p.name] || p.displayName}</div>
+                    <div className="text-xs text-slate-500 font-mono">{p.name}</div>
                   </div>
                 </div>
+                <div className="flex items-center gap-2">
+                  {p.configured && p.health && (
+                    p.health.healthy ? <CheckCircle2 className="w-5 h-5 text-emerald-500" /> : <AlertCircle className="w-5 h-5 text-amber-500" />
+                  )}
+                  <Switch checked={p.enabled} disabled={!p.configured} />
+                </div>
+              </div>
 
-                {p.configured && p.credentials && Object.keys(p.credentials).length > 0 && (
-                  <div className="space-y-1 mb-3">
-                    {Object.entries(p.credentials).slice(0, 3).map(([k, v]) => (
-                      <div key={k} className="flex items-center justify-between text-xs">
-                        <span className="text-slate-500">{k}</span>
-                        <span className="font-mono text-slate-700">{v}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              {p.configured && p.credentials && Object.keys(p.credentials).length > 0 && (
+                <div className="space-y-1 mb-3">
+                  {Object.entries(p.credentials).slice(0, 3).map(([k, v]) => (
+                    <div key={k} className="flex items-center justify-between text-xs">
+                      <span className="text-slate-500">{k}</span>
+                      <span className="font-mono text-slate-700 truncate max-w-[150px]" dir="ltr">{v}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
-                {p.health && (
-                  <div className="text-xs text-slate-500 mb-3">
-                    Health: <span className={p.health.healthy ? 'text-emerald-600' : 'text-red-600'}>{p.health.healthy ? 'OK' : 'Down'}</span>
-                    {' · '}
-                    <span>{p.health.latencyMs}ms</span>
-                    {p.health.details && <span> · {p.health.details}</span>}
-                  </div>
-                )}
+              {p.health && (
+                <div className="text-xs text-slate-500 mb-3">
+                  الحالة: <span className={p.health.healthy ? 'text-emerald-600' : 'text-red-600'}>{p.health.healthy ? 'سليم' : 'متوقف'}</span>
+                  {' · '}
+                  <span>{p.health.latencyMs}ms</span>
+                </div>
+              )}
 
-                <Button variant="outline" size="sm" onClick={() => openEditor(p.name)} className="w-full">
-                  <Settings className="w-3.5 h-3.5 mr-2" />
-                  {p.configured ? 'Edit configuration' : 'Configure'}
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+              <Button variant="outline" size="sm" onClick={() => openEditor(p.name)} className="w-full">
+                <Settings className="w-3.5 h-3.5 ml-2" />
+                {p.configured ? 'تعديل الإعدادات' : 'تكوين'}
+              </Button>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
-      {/* Edit dialog */}
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Configure {editing}</DialogTitle>
+            <DialogTitle>تكوين {editing && PROVIDER_LABELS[editing]}</DialogTitle>
           </DialogHeader>
           {editing && (
             <div className="space-y-3 max-h-[60vh] overflow-y-auto">
               {PROVIDER_FIELDS[editing]?.length === 0 ? (
-                <div className="text-sm text-slate-500 text-center py-4">This provider needs no credentials.</div>
+                <div className="text-sm text-slate-500 text-center py-4">هذا المزود لا يحتاج بيانات اعتماد.</div>
               ) : (
                 PROVIDER_FIELDS[editing]?.map((f) => (
                   <div key={f.key} className="space-y-1.5">
@@ -181,37 +179,34 @@ export function ProvidersView({ project }: { project: Project }) {
                       value={formValues[f.key] || ''}
                       onChange={(e) => setFormValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
                       placeholder={f.placeholder}
+                      dir={f.type === 'password' ? 'ltr' : 'rtl'}
+                      className={f.type === 'password' ? 'text-right' : ''}
                     />
                   </div>
                 ))
               )}
-
-              {PROVIDER_CONFIG[editing] && PROVIDER_CONFIG[editing].length > 0 && (
-                <div className="pt-3 border-t">
-                  <div className="text-xs font-medium text-slate-700 mb-2">Configuration</div>
-                  {PROVIDER_CONFIG[editing].map((f) => (
-                    <div key={f.key} className="space-y-1.5 mb-2">
-                      <Label className="text-xs">{f.label}</Label>
-                      <Input
-                        value={configValues[f.key] || ''}
-                        onChange={(e) => setConfigValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                        placeholder={f.placeholder}
-                      />
-                    </div>
-                  ))}
+              {editing === 'email_smtp' && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">عنوان المرسل</Label>
+                  <Input
+                    value={configValues.fromAddress || ''}
+                    onChange={(e) => setConfigValues((prev) => ({ ...prev, fromAddress: e.target.value }))}
+                    placeholder="no-reply@example.com"
+                    dir="ltr"
+                    className="text-right"
+                  />
                 </div>
               )}
-
-              <div className="p-3 rounded-md bg-blue-50 border border-blue-200 text-xs text-blue-800">
-                <strong>Note:</strong> Credentials are stored encrypted in production. In dev mode, providers run in simulation mode — no real notifications are sent.
+              <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800">
+                <strong>ملاحظة:</strong> البيانات مشفّرة في الإنتاج. في وضع التطوير، المزودون يعملون في وضع محاكاة.
               </div>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setEditing(null)}>إلغاء</Button>
             <Button onClick={handleSave} disabled={saving}>
-              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Save
+              {saving && <Loader2 className="w-4 h-4 animate-spin ml-2" />}
+              حفظ
             </Button>
           </DialogFooter>
         </DialogContent>
