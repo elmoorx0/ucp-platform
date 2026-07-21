@@ -10,16 +10,40 @@ export interface NotificationItem {
   createdAt: string; sentAt: string | null
 }
 
+async function parseJsonSafe(res: Response): Promise<ApiResponse> {
+  try {
+    const text = await res.text()
+    if (!text) {
+      return { success: false, error: { code: 'EMPTY_RESPONSE', message: 'Server returned empty response' } }
+    }
+    return JSON.parse(text) as ApiResponse
+  } catch (e) {
+    return { success: false, error: { code: 'PARSE_ERROR', message: `Failed to parse response: ${(e as Error).message}` } }
+  }
+}
+
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(path, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    credentials: 'include',
-  })
-  const json = (await res.json()) as ApiResponse<T>
+  let res: Response
+  try {
+    res = await fetch(path, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+      credentials: 'include',
+    })
+  } catch (e) {
+    throw new Error(`Network error: ${(e as Error).message}`)
+  }
+
+  if (!res.ok && res.status !== 400 && res.status !== 401 && res.status !== 403 && res.status !== 404) {
+    // For 5xx errors, try to get the body but don't fail on parse
+    const text = await res.text().catch(() => '')
+    throw new Error(`Server error ${res.status}: ${text || res.statusText}`)
+  }
+
+  const json = await parseJsonSafe(res)
   if (!json.success) {
     throw new Error(json.error?.message || 'API request failed')
   }
@@ -28,8 +52,14 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 
 // Helper for paginated endpoints that return data + meta
 async function apiFetchPaginated<T>(path: string): Promise<{ items: T[]; total: number; totalPages: number }> {
-  const res = await fetch(path, { credentials: 'include' })
-  const json = (await res.json()) as ApiResponse<T[]>
+  let res: Response
+  try {
+    res = await fetch(path, { credentials: 'include' })
+  } catch (e) {
+    throw new Error(`Network error: ${(e as Error).message}`)
+  }
+
+  const json = await parseJsonSafe(res) as ApiResponse<T[]>
   if (!json.success) throw new Error(json.error?.message || 'API request failed')
   return {
     items: (json.data as T[]) || [],
@@ -180,7 +210,21 @@ export const api = {
 
   // Health
   async health() {
-    const res = await fetch('/api/health')
-    return res.json()
+    try {
+      const res = await fetch('/api/health')
+      if (!res.ok) {
+        console.warn('[UCP] health check failed:', res.status, res.statusText)
+        return { status: 'degraded', checks: { counts: { users: 0 } } }
+      }
+      const text = await res.text()
+      if (!text) {
+        console.warn('[UCP] health check returned empty response')
+        return { status: 'degraded', checks: { counts: { users: 0 } } }
+      }
+      return JSON.parse(text)
+    } catch (e) {
+      console.warn('[UCP] health check error:', (e as Error).message)
+      return { status: 'degraded', checks: { counts: { users: 0 } } }
+    }
   },
 }
