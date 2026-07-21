@@ -1,0 +1,422 @@
+{
+  "info": {
+    "_postman_id": "ucp-platform-collection-001",
+    "name": "UCP - Universal Communication Platform",
+    "description": "Complete API collection for UCP (Universal Communication Platform).\n\n## Setup\n1. Import this collection into Postman\n2. Import the environment file (ucp-environment.json)\n3. Set your `apiUrl`, `gatewayUrl`, and `apiKey` variables\n4. Run \"Seed Demo Data\" request first to get started\n\n## Authentication\nAll requests use `x-api-key` header with your UCP API key.\n\n## Documentation\n- Full OpenAPI spec: {{apiUrl}}/api/docs\n- GitHub: https://github.com/elmoorx0/ucp-platform",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "ucp-team"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      { "key": "key", "value": "x-api-key", "type": "string" },
+      { "key": "value", "value": "{{apiKey}}", "type": "string" }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Auto-add request ID for tracing",
+          "if (!pm.request.headers.has('X-Request-ID')) {",
+          "  pm.request.headers.add({",
+          "    key: 'X-Request-ID',",
+          "    value: pm.variables.replaceIn('{{$guid}}')",
+          "  });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "apiUrl", "value": "http://localhost:3000", "type": "string" },
+    { "key": "gatewayUrl", "value": "http://localhost:3003", "type": "string" },
+    { "key": "apiKey", "value": "ucp_live_xxx", "type": "string" },
+    { "key": "projectId", "value": "", "type": "string" },
+    { "key": "notificationId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{apiUrl}}/api/health", "host": ["{{apiUrl}}"], "path": ["api", "health"] }
+          }
+        },
+        {
+          "name": "OpenAPI Spec",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{apiUrl}}/api/docs", "host": ["{{apiUrl}}"], "path": ["api", "docs"] }
+          }
+        },
+        {
+          "name": "Prometheus Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{apiUrl}}/api/metrics", "host": ["{{apiUrl}}"], "path": ["api", "metrics"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Setup",
+      "item": [
+        {
+          "name": "Seed Demo Data",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{apiUrl}}/api/dashboard/seed?force=true",
+              "host": ["{{apiUrl}}"],
+              "path": ["api", "dashboard", "seed"],
+              "query": [{ "key": "force", "value": "true" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var response = pm.response.json();",
+                  "if (response.success && response.data) {",
+                  "  var data = response.data;",
+                  "  if (data.project) {",
+                  "    pm.environment.set('projectId', data.project.id);",
+                  "  }",
+                  "  if (data.apiKey && data.apiKey.plaintext) {",
+                  "    pm.environment.set('apiKey', data.apiKey.plaintext);",
+                  "    console.log('API Key set: ' + data.apiKey.plaintext);",
+                  "  }",
+                  "  console.log('Demo data seeded! Login: ' + data.user.email + ' / ' + data.user.password);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dashboard Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@ucp.local\",\n  \"password\": \"ucp-admin-2026\"\n}"
+            },
+            "url": { "raw": "{{apiUrl}}/api/dashboard/login", "host": ["{{apiUrl}}"], "path": ["api", "dashboard", "login"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "Send Notification",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"channel\": \"inapp\",\n  \"to\": [\"user-001\", \"user-002\"],\n  \"title\": \"Hello from UCP\",\n  \"body\": \"This notification was sent through the Universal Communication Platform.\",\n  \"priority\": \"normal\",\n  \"externalId\": \"postman-test-{{$timestamp}}\"\n}"
+            },
+            "url": { "raw": "{{apiUrl}}/api/v1/notifications", "host": ["{{apiUrl}}"], "path": ["api", "v1", "notifications"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var response = pm.response.json();",
+                  "if (response.success && response.data) {",
+                  "  pm.environment.set('notificationId', response.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Send from Template (OTP - Arabic)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"template\": \"otp\",\n  \"variables\": {\n    \"code\": \"123456\"\n  },\n  \"locale\": \"ar\",\n  \"to\": [\"user-001\"],\n  \"channel\": \"inapp\"\n}"
+            },
+            "url": { "raw": "{{apiUrl}}/api/v1/notifications/send-template", "host": ["{{apiUrl}}"], "path": ["api", "v1", "notifications", "send-template"] }
+          }
+        },
+        {
+          "name": "Send from Template (Welcome - English)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"template\": \"welcome\",\n  \"variables\": {\n    \"name\": \"Alice\",\n    \"appName\": \"MyApp\"\n  },\n  \"locale\": \"en\",\n  \"to\": [\"user-001\"],\n  \"channel\": \"inapp\"\n}"
+            },
+            "url": { "raw": "{{apiUrl}}/api/v1/notifications/send-template", "host": ["{{apiUrl}}"], "path": ["api", "v1", "notifications", "send-template"] }
+          }
+        },
+        {
+          "name": "List Notifications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiUrl}}/api/v1/notifications?page=1&pageSize=20",
+              "host": ["{{apiUrl}}"],
+              "path": ["api", "v1", "notifications"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Notification by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{apiUrl}}/api/v1/notifications/{{notificationId}}", "host": ["{{apiUrl}}"], "path": ["api", "v1", "notifications", "{{notificationId}}"] }
+          }
+        },
+        {
+          "name": "Cancel Notification",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{apiUrl}}/api/v1/notifications/{{notificationId}}/cancel", "host": ["{{apiUrl}}"], "path": ["api", "v1", "notifications", "{{notificationId}}", "cancel"] }
+          }
+        },
+        {
+          "name": "List Scheduled Notifications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiUrl}}/api/v1/notifications/scheduled?hoursAhead=24",
+              "host": ["{{apiUrl}}"],
+              "path": ["api", "v1", "notifications", "scheduled"],
+              "query": [{ "key": "hoursAhead", "value": "24" }]
+            }
+          }
+        },
+        {
+          "name": "Schedule a Notification",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"channel\": \"inapp\",\n  \"to\": [\"user-001\"],\n  \"title\": \"Meeting reminder\",\n  \"body\": \"Your meeting starts in 1 hour\",\n  \"scheduledAt\": \"2026-12-31T15:00:00Z\",\n  \"priority\": \"high\"\n}"
+            },
+            "url": { "raw": "{{apiUrl}}/api/v1/notifications", "host": ["{{apiUrl}}"], "path": ["api", "v1", "notifications"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users & Devices",
+      "item": [
+        {
+          "name": "Register End User",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"externalId\": \"user-006\",\n  \"email\": \"newuser@example.com\",\n  \"name\": \"New User\",\n  \"language\": \"en\",\n  \"tags\": [\"beta\", \"new\"]\n}"
+            },
+            "url": { "raw": "{{apiUrl}}/api/v1/users", "host": ["{{apiUrl}}"], "path": ["api", "v1", "users"] }
+          }
+        },
+        {
+          "name": "List End Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{apiUrl}}/api/v1/users?page=1", "host": ["{{apiUrl}}"], "path": ["api", "v1", "users"], "query": [{ "key": "page", "value": "1" }] }
+          }
+        },
+        {
+          "name": "Register Device (Android FCM)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"externalUserId\": \"user-001\",\n  \"token\": \"firebase-token-example-1234567890\",\n  \"platform\": \"android\",\n  \"appVersion\": \"1.0.0\"\n}"
+            },
+            "url": { "raw": "{{apiUrl}}/api/v1/devices", "host": ["{{apiUrl}}"], "path": ["api", "v1", "devices"] }
+          }
+        },
+        {
+          "name": "Register Device (Web Push)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"externalUserId\": \"user-001\",\n  \"token\": \"https://fcm.googleapis.com/fcm/send/example-endpoint\",\n  \"platform\": \"web\",\n  \"pushSubscription\": {\n    \"endpoint\": \"https://fcm.googleapis.com/fcm/send/example\",\n    \"keys\": {\n      \"p256dh\": \"BNcG1p example key\",\n      \"auth\": \"example-auth-key\"\n    }\n  }\n}"
+            },
+            "url": { "raw": "{{apiUrl}}/api/v1/devices", "host": ["{{apiUrl}}"], "path": ["api", "v1", "devices"] }
+          }
+        },
+        {
+          "name": "List Devices",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{apiUrl}}/api/v1/devices?page=1", "host": ["{{apiUrl}}"], "path": ["api", "v1", "devices"], "query": [{ "key": "page", "value": "1" }] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Realtime & Presence",
+      "item": [
+        {
+          "name": "Broadcast to Channel",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"channel\": \"orders\",\n  \"event\": \"order.created\",\n  \"payload\": {\n    \"orderId\": \"ORD-12345\",\n    \"total\": 99.99\n  }\n}"
+            },
+            "url": { "raw": "{{apiUrl}}/api/v1/realtime", "host": ["{{apiUrl}}"], "path": ["api", "v1", "realtime"] }
+          }
+        },
+        {
+          "name": "Get Online Users (Presence)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{apiUrl}}/api/v1/presence", "host": ["{{apiUrl}}"], "path": ["api", "v1", "presence"] }
+          }
+        },
+        {
+          "name": "Get User Presence",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiUrl}}/api/v1/presence?userId=user-001",
+              "host": ["{{apiUrl}}"],
+              "path": ["api", "v1", "presence"],
+              "query": [{ "key": "userId", "value": "user-001" }]
+            }
+          }
+        },
+        {
+          "name": "List Channels",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{apiUrl}}/api/v1/channels", "host": ["{{apiUrl}}"], "path": ["api", "v1", "channels"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Templates & Webhooks",
+      "item": [
+        {
+          "name": "List Templates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{apiUrl}}/api/v1/templates", "host": ["{{apiUrl}}"], "path": ["api", "v1", "templates"] }
+          }
+        },
+        {
+          "name": "Test Webhook",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event\": \"notification.sent\"\n}"
+            },
+            "url": { "raw": "{{apiUrl}}/api/v1/webhooks/test", "host": ["{{apiUrl}}"], "path": ["api", "v1", "webhooks", "test"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Project & Stats",
+      "item": [
+        {
+          "name": "Get Project Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{apiUrl}}/api/v1/projects", "host": ["{{apiUrl}}"], "path": ["api", "v1", "projects"] }
+          }
+        },
+        {
+          "name": "Get Stats (30 days)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiUrl}}/api/v1/stats?days=30",
+              "host": ["{{apiUrl}}"],
+              "path": ["api", "v1", "stats"],
+              "query": [{ "key": "days", "value": "30" }]
+            }
+          }
+        },
+        {
+          "name": "List Events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{apiUrl}}/api/v1/events?page=1", "host": ["{{apiUrl}}"], "path": ["api", "v1", "events"], "query": [{ "key": "page", "value": "1" }] }
+          }
+        },
+        {
+          "name": "List Providers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{apiUrl}}/api/v1/providers", "host": ["{{apiUrl}}"], "path": ["api", "v1", "providers"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "API Key Management",
+      "item": [
+        {
+          "name": "Rotate API Key (Dashboard only)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"apiKeyId\": \"replace-with-actual-key-id\",\n  \"name\": \"Rotated key\"\n}"
+            },
+            "url": { "raw": "{{apiUrl}}/api/v1/api-keys/rotate", "host": ["{{apiUrl}}"], "path": ["api", "v1", "api-keys", "rotate"] }
+          }
+        }
+      ]
+    }
+  ]
+}

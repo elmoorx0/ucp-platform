@@ -55,11 +55,8 @@ dev.out.log
 server.log
 process.log
 
-# UCP-specific
+# Skills directory
 /skills/
-/.zscripts/
-/.z-ai-config/
-/examples/
 
 # Database (SQLite dev)
 *.db
