@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from 'react'
 import { Project, User, ViewKey } from '@/app/page'
 import {
-  LayoutDashboard, FolderKanban, KeyRound, Bell, Send, Settings, Users, Radio, FileClock, ScrollText, LogOut, Plus, ChevronDown, Check, Menu, X
+  LayoutDashboard, FolderKanban, KeyRound, Bell, Send, Settings, Users, Radio, FileClock, ScrollText, LogOut, Plus, ChevronDown, Check, Menu, X, Moon, Sun, MoreHorizontal
 } from 'lucide-react'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel
@@ -13,15 +13,25 @@ import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
+import { useTheme } from '@/lib/theme-provider'
 
 interface NavItem {
   key: ViewKey
   label: string
   icon: React.ComponentType<{ className?: string }>
   requiresProject?: boolean
+  mobile?: boolean
 }
 
 const NAV_ITEMS: NavItem[] = [
+  { key: 'overview', label: 'نظرة عامة', icon: LayoutDashboard, requiresProject: true, mobile: true },
+  { key: 'notifications', label: 'الإشعارات', icon: Bell, requiresProject: true, mobile: true },
+  { key: 'send', label: 'إرسال', icon: Send, requiresProject: true, mobile: true },
+  { key: 'endusers', label: 'المستخدمون', icon: Users, requiresProject: true, mobile: true },
+  { key: 'providers', label: 'المزودون', icon: Settings, requiresProject: true, mobile: true },
+]
+
+const ALL_NAV_ITEMS: NavItem[] = [
   { key: 'overview', label: 'نظرة عامة', icon: LayoutDashboard, requiresProject: true },
   { key: 'projects', label: 'المشاريع', icon: FolderKanban },
   { key: 'api-keys', label: 'مفاتيح API', icon: KeyRound, requiresProject: true },
@@ -32,7 +42,10 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'events', label: 'الأحداث', icon: Radio, requiresProject: true },
   { key: 'realtime', label: 'الوقت الحقيقي', icon: FileClock, requiresProject: true },
   { key: 'audit', label: 'سجل التدقيق', icon: ScrollText },
+  { key: 'settings', label: 'الإعدادات', icon: Settings },
 ]
+
+const MOBILE_NAV_ITEMS = ALL_NAV_ITEMS.filter((item) => item.mobile)
 
 interface ShellProps {
   user: User
@@ -51,6 +64,7 @@ export function DashboardShell({
   user, projects, currentProject, onSelectProject, onRefreshProjects, view, onViewChange, onLogout, socketConnected, children
 }: ShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const { theme, toggleTheme } = useTheme()
 
   const sidebarContent = (onNavigate?: () => void) => (
     <>
@@ -65,7 +79,7 @@ export function DashboardShell({
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        {NAV_ITEMS.map((item) => {
+        {ALL_NAV_ITEMS.map((item) => {
           const Icon = item.icon
           const active = view === item.key
           const disabled = item.requiresProject && !currentProject
@@ -106,7 +120,7 @@ export function DashboardShell({
   )
 
   return (
-    <div className="min-h-screen flex bg-slate-50">
+    <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950">
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex w-64 bg-sidebar text-sidebar-foreground flex-col flex-shrink-0">
         {sidebarContent()}
@@ -122,7 +136,7 @@ export function DashboardShell({
                 <X className="w-5 h-5" />
               </Button>
             </div>
-            <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col overflow-y-auto">
               {sidebarContent(() => setMobileOpen(false))}
             </div>
           </div>
@@ -132,7 +146,7 @@ export function DashboardShell({
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 flex-shrink-0 gap-2">
+        <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 sm:px-6 flex-shrink-0 gap-2 sticky top-0 z-30">
           <div className="flex items-center gap-2 min-w-0">
             {/* Mobile menu button */}
             <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)}>
@@ -142,7 +156,7 @@ export function DashboardShell({
             {/* Project selector */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-100 text-sm font-medium text-slate-700 transition-colors">
+                <button className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-300 transition-colors">
                   <FolderKanban className="w-4 h-4 text-slate-400" />
                   <span className="hidden sm:inline max-w-[150px] truncate">{currentProject ? currentProject.name : 'اختر مشروعاً'}</span>
                   <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
@@ -175,29 +189,34 @@ export function DashboardShell({
             </DropdownMenu>
 
             {currentProject && (
-              <Badge variant="outline" className="text-xs text-slate-600 hidden sm:inline-flex">
+              <Badge variant="outline" className="text-xs text-slate-600 dark:text-slate-400 hidden sm:inline-flex">
                 {currentProject.status === 'active' ? 'نشط' : currentProject.status}
               </Badge>
             )}
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3">
             <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500">
               <span className={cn('w-2 h-2 rounded-full', socketConnected ? 'bg-emerald-400' : 'bg-slate-300')} />
               <span className="hidden md:inline">{socketConnected ? 'متصل بالوقت الحقيقي' : 'الوقت الحقيقي متوقف'}</span>
             </div>
 
+            {/* Dark mode toggle */}
+            <Button variant="ghost" size="icon" onClick={toggleTheme} className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+              {theme === 'light' ? <Moon className="w-[18px] h-[18px]" /> : <Sun className="w-[18px] h-[18px]" />}
+            </Button>
+
             {/* User menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-100 transition-colors">
+                <button className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                   <Avatar className="w-8 h-8">
-                    <AvatarFallback className="text-xs bg-emerald-100 text-emerald-700 font-medium">
+                    <AvatarFallback className="text-xs bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 font-medium">
                       {(user.name || user.email)[0].toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div className="text-right hidden md:block">
-                    <div className="text-xs font-medium text-slate-700 leading-tight">{user.name || user.email}</div>
+                    <div className="text-xs font-medium text-slate-700 dark:text-slate-300 leading-tight">{user.name || user.email}</div>
                     <div className="text-[10px] text-slate-400 leading-tight">{user.role === 'super_admin' ? 'مدير عام' : user.role}</div>
                   </div>
                   <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden md:block" />
@@ -219,10 +238,42 @@ export function DashboardShell({
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-auto">
+        <main className="flex-1 overflow-auto pb-20 lg:pb-0">
           {children}
         </main>
       </div>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-around px-2 py-1.5 z-30">
+        {MOBILE_NAV_ITEMS.slice(0, 4).map((item) => {
+          const Icon = item.icon
+          const active = view === item.key
+          const disabled = item.requiresProject && !currentProject
+          return (
+            <button
+              key={item.key}
+              onClick={() => !disabled && onViewChange(item.key)}
+              disabled={disabled}
+              className={cn(
+                'flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg transition-colors min-w-[60px]',
+                active ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400',
+                disabled && 'opacity-40'
+              )}
+            >
+              <Icon className="w-5 h-5" />
+              <span className="text-[10px] font-medium">{item.label}</span>
+            </button>
+          )
+        })}
+        {/* More button */}
+        <button
+          onClick={() => setMobileOpen(true)}
+          className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg text-slate-400 min-w-[60px]"
+        >
+          <MoreHorizontal className="w-5 h-5" />
+          <span className="text-[10px] font-medium">المزيد</span>
+        </button>
+      </nav>
     </div>
   )
 }

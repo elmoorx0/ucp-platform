@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Cairo, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import { ThemeProvider } from "@/lib/theme-provider";
 
 const cairo = Cairo({
   variable: "--font-cairo",
@@ -42,8 +43,10 @@ export default function RootLayout({
       <body
         className={`${cairo.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
-        {children}
-        <Toaster />
+        <ThemeProvider>
+          {children}
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   );

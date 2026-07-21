@@ -15,6 +15,7 @@ import { EndUsersView } from '@/components/dashboard/end-users-view'
 import { EventsView } from '@/components/dashboard/events-view'
 import { AuditView } from '@/components/dashboard/audit-view'
 import { RealtimeMonitorView } from '@/components/dashboard/realtime-monitor-view'
+import { SettingsView } from '@/components/dashboard/settings-view'
 import { toast } from 'sonner'
 import { Toaster } from '@/components/ui/sonner'
 
@@ -29,6 +30,7 @@ export type ViewKey =
   | 'events'
   | 'audit'
   | 'realtime'
+  | 'settings'
 
 export interface User {
   userId: string
@@ -208,14 +210,15 @@ export default function Home() {
         {view === 'realtime' && currentProject && (
           <RealtimeMonitorView project={currentProject} logs={socketLogs} onClearLogs={() => setSocketLogs([])} />
         )}
-        {!currentProject && view !== 'projects' && view !== 'audit' && (
+        {view === 'settings' && <SettingsView />}
+        {!currentProject && view !== 'projects' && view !== 'audit' && view !== 'settings' && (
           <div className="flex flex-col items-center justify-center h-full py-20">
-            <div className="text-slate-400 text-sm">No project selected</div>
+            <div className="text-slate-400 text-sm">لم يتم اختيار مشروع</div>
             <button
               className="mt-4 px-4 py-2 bg-slate-900 text-white rounded-md text-sm"
               onClick={() => setView('projects')}
             >
-              Select or create a project
+              اختر أو أنشئ مشروعاً
             </button>
           </div>
         )}
