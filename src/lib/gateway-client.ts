@@ -3,14 +3,13 @@
  * HTTP client for server-to-server push to the UCP Realtime Gateway.
  * NO POLLING — all communication is direct HTTP POST to /internal/push.
  *
- * In production with multiple Next.js instances, the gateway runs as a
- * separate service and may be behind a load balancer. This client
- * supports a list of gateway URLs for failover.
+ * Zero-config: If REALTIME_GATEWAY_URL is not set, gateway features are
+ * gracefully disabled (in-app notifications will be persisted but not
+ * delivered live). Set REALTIME_GATEWAY_URL to enable realtime.
  */
 
-import { db } from '@/lib/db'
-
-const GATEWAY_BASE_URL = process.env.REALTIME_GATEWAY_URL || 'http://localhost:3003'
+// Default to empty string — gateway features disabled if not set
+const GATEWAY_BASE_URL = process.env.REALTIME_GATEWAY_URL || ''
 const INTERNAL_API_TOKEN = process.env.INTERNAL_API_TOKEN || 'ucp-internal-dev-token-change-me'
 
 export type PushTarget = 'user' | 'channel' | 'project' | 'all' | 'socket'
@@ -32,10 +31,16 @@ export interface PushResponse {
 }
 
 /**
- * Push a message to the gateway. Fire-and-forget — if the gateway is down,
- * the message is logged but the notification still persists in DB.
+ * Push a message to the gateway. Fire-and-forget — if the gateway is down
+ * or not configured, the message is logged but the notification still
+ * persists in DB.
  */
 export async function pushToGateway(req: PushRequest): Promise<PushResponse | null> {
+  // If gateway URL is not set, skip silently
+  if (!GATEWAY_BASE_URL) {
+    return null
+  }
+
   try {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 3000)
@@ -64,12 +69,15 @@ export async function pushToGateway(req: PushRequest): Promise<PushResponse | nu
 
 /**
  * Query the gateway for presence info (online users, user status).
+ * Returns null if gateway is not configured or unreachable.
  */
 export async function queryPresence(projectId: string, userId?: string): Promise<{
   user?: unknown
   users?: unknown[]
   count?: number
 } | null> {
+  if (!GATEWAY_BASE_URL) return null
+
   try {
     const url = new URL(`${GATEWAY_BASE_URL}/internal/presence`)
     url.searchParams.set('projectId', projectId)
@@ -94,8 +102,11 @@ export async function queryPresence(projectId: string, userId?: string): Promise
 
 /**
  * Check gateway health.
+ * Returns null if gateway is not configured or unreachable.
  */
 export async function gatewayHealthCheck(): Promise<{ ok: boolean; socketCount: number; presenceCount: number } | null> {
+  if (!GATEWAY_BASE_URL) return null
+
   try {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 2000)
@@ -106,4 +117,11 @@ export async function gatewayHealthCheck(): Promise<{ ok: boolean; socketCount: 
   } catch {
     return null
   }
+}
+
+/**
+ * Check if the gateway is configured.
+ */
+export function isGatewayConfigured(): boolean {
+  return !!GATEWAY_BASE_URL
 }
