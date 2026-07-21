@@ -6,14 +6,12 @@ import type { NextConfig } from "next";
  * Notes:
  * - `output: "standalone"` is omitted for Vercel (Vercel handles its own build).
  *   Enable it only if you plan to deploy with Docker.
- * - `typescript.ignoreBuildErrors: false` — we want type errors to fail builds.
  * - `reactStrictMode: false` to avoid double-effect execution in dev.
+ * - Next.js 16 no longer supports `typescript.ignoreBuildErrors` or `eslint.ignoreDuringBuilds`
+ *   in the config — type errors and lint errors will fail the build by default.
  */
 const nextConfig: NextConfig = {
   reactStrictMode: false,
-  typescript: {
-    ignoreBuildErrors: false,
-  },
   // Prisma client binary needs to be included in the serverless bundle
   outputFileTracingIncludes: {
     "/api/**/*": [
