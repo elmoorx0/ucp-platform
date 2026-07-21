@@ -13,16 +13,8 @@
   },
   "crons": [
     {
-      "path": "/api/internal/scheduler?limit=100",
-      "schedule": "0 * * * *"
-    },
-    {
-      "path": "/api/internal/retry?limit=100",
-      "schedule": "0 * * * *"
-    },
-    {
-      "path": "/api/internal/webhook-retry?limit=50",
-      "schedule": "0 * * * *"
+      "path": "/api/internal/daily-tasks?limit=200",
+      "schedule": "0 0 * * *"
     }
   ]
 }
