@@ -16,10 +16,11 @@ export async function POST(req: NextRequest) {
   }
 
   const url = new URL(req.url)
-  const limit = parseInt(url.searchParams.get('limit') || '25', 10)
+  const limit = parseInt(url.searchParams.get('limit') || '50', 10)
+  const clampedLimit = Math.min(Math.max(limit, 1), 200)
 
   try {
-    const result = await processWebhookRetries(limit)
+    const result = await processWebhookRetries(clampedLimit)
     return NextResponse.json({ success: true, ...result })
   } catch (e) {
     console.error('[Webhook Retry] error:', e)

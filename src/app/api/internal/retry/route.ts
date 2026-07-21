@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   }
 
   const url = new URL(req.url)
-  const limit = parseInt(url.searchParams.get('limit') || '50', 10)
+  const limit = parseInt(url.searchParams.get('limit') || '100', 10)
   const clampedLimit = Math.min(Math.max(limit, 1), 500)
 
   try {
