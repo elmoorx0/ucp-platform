@@ -7,41 +7,81 @@ import { PrismaClient } from '@prisma/client'
  *  - Local dev: SQLite file (DATABASE_URL="file:./db/custom.db")
  *  - Production (Vercel): Turso libSQL (DATABASE_URL="libsql://...")
  *
+ * IMPORTANT: On Vercel serverless, SQLite file URLs (file:./...) will NOT work
+ * because the filesystem is read-only. You MUST use Turso:
+ *   1. Create a free Turso account: https://turso.tech
+ *   2. Create a database: turso db create ucp
+ *   3. Set DATABASE_URL="libsql://ucp-xxx.turso.io?authToken=xxx" in Vercel
+ *
  * Why singleton? In serverless environments (Vercel), each invocation may
  * spin up a new instance. We cache PrismaClient on `globalThis` to avoid
  * creating new DB connections on every hot-reload during dev, and to
  * reuse connections across serverless invocations when possible.
- *
- * For production on Vercel:
- *   1. Create a free Turso account: https://turso.tech
- *   2. Create a database
- *   3. Set DATABASE_URL="libsql://your-db.turso.io?authToken=your-token"
- *
- * Why Turso?
- *   - SQLite-compatible (same Prisma schema, no migration needed)
- *   - Serverless-friendly (HTTP-based, no connection pooling issues)
- *   - Free tier: 9GB, 500 databases, 1 billion reads/month
- *   - Edge-ready (low latency globally)
  */
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
 function createPrismaClient(): PrismaClient {
-  const databaseUrl = process.env.DATABASE_URL || 'file:./db/custom.db'
+  const databaseUrl = process.env.DATABASE_URL
+
+  if (!databaseUrl) {
+    const msg = [
+      '[UCP] FATAL: DATABASE_URL environment variable is not set!',
+      '',
+      'For local development:',
+      '  1. Copy .env.example to .env',
+      '  2. Set DATABASE_URL="file:./db/custom.db"',
+      '  3. Run: bun run db:push',
+      '',
+      'For Vercel production (REQUIRED):',
+      '  SQLite file URLs do NOT work on Vercel (read-only filesystem).',
+      '  You MUST use Turso (free SQLite in the cloud):',
+      '  1. Sign up at https://turso.tech (free)',
+      '  2. Create database: turso db create ucp',
+      '  3. Get URL: turso db show ucp --url',
+      '  4. Get token: turso db tokens create ucp',
+      '  5. In Vercel dashboard → Settings → Environment Variables:',
+      '     DATABASE_URL = libsql://ucp-xxx.turso.io?authToken=xxx',
+      '  6. Redeploy',
+    ].join('\n')
+    console.error(msg)
+    throw new Error('DATABASE_URL is not set. Check server logs for setup instructions.')
+  }
 
   // If DATABASE_URL starts with "libsql://", use Turbo adapter (production)
-  // We load these dependencies dynamically so they're only required when
-  // actually using Turso. This avoids build errors when @libsql/client is
-  // not installed in dev environments that only use SQLite files.
   if (databaseUrl.startsWith('libsql://') || databaseUrl.startsWith('libsql:')) {
     return createTursoClient(databaseUrl)
   }
 
-  // Local SQLite file (development)
-  return new PrismaClient({
-    log: process.env.NODE_ENV === 'production' ? ['error', 'warn'] : ['query', 'error', 'warn'],
-  })
+  // Local SQLite file (development only — does NOT work on Vercel)
+  if (databaseUrl.startsWith('file:')) {
+    // Warn if running on Vercel with file: URL
+    if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+      console.error([
+        '[UCP] WARNING: DATABASE_URL starts with "file:" but you appear to be',
+        'running on Vercel/production. SQLite files do NOT work on Vercel',
+        'because the filesystem is read-only.',
+        '',
+        'Please switch to Turso (free SQLite in the cloud):',
+        '  1. https://turso.tech — sign up',
+        '  2. turso db create ucp',
+        '  3. turso db show ucp --url',
+        '  4. turso db tokens create ucp',
+        '  5. Set DATABASE_URL="libsql://ucp-xxx.turso.io?authToken=xxx"',
+        '     in Vercel → Settings → Environment Variables',
+        '  6. Redeploy',
+      ].join('\n'))
+    }
+    return new PrismaClient({
+      log: process.env.NODE_ENV === 'production' ? ['error', 'warn'] : ['query', 'error', 'warn'],
+    })
+  }
+
+  // Unknown URL format
+  console.error(`[UCP] Unknown DATABASE_URL format: ${databaseUrl.substring(0, 30)}...`)
+  console.error('Expected formats: "file:./db/custom.db" or "libsql://xxx.turso.io?authToken=xxx"')
+  throw new Error(`Invalid DATABASE_URL format`)
 }
 
 /**
@@ -60,7 +100,6 @@ function createTursoClient(databaseUrl: string): PrismaClient {
   const { PrismaLibSQL } = require('@prisma/adapter-libsql') as typeof import('@prisma/adapter-libsql')
 
   // PrismaLibSQL constructor accepts a Config object (url + authToken), NOT a Client instance.
-  // This is the API in @prisma/adapter-libsql 6.x.
   const adapter = new PrismaLibSQL({ url, authToken })
   return new PrismaClient({
     adapter,
